@@ -1,0 +1,177 @@
+:root {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #0f172a;
+  background: #f8fafc;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.header p {
+  margin-top: 6px;
+  color: #475569;
+}
+
+.auth-bar {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  color: #334155;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin: 18px 0;
+}
+
+.tab {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.tab.active {
+  border-color: #2563eb;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 16px;
+}
+
+.list-panel,
+.detail {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  min-height: 520px;
+}
+
+.email-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.email-item {
+  padding: 12px;
+  border-bottom: 1px solid #f1f5f9;
+  cursor: pointer;
+}
+
+.email-item.selected {
+  background: #eff6ff;
+}
+
+.email-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.email-meta {
+  display: flex;
+  justify-content: space-between;
+  color: #64748b;
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.snippet {
+  color: #334155;
+  margin: 8px 0 0;
+}
+
+.badge {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-radius: 999px;
+  font-size: 12px;
+  padding: 2px 8px;
+}
+
+.detail {
+  padding: 14px 16px;
+}
+
+.detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.mode-toggle button {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.mode-toggle .active {
+  background: #e0e7ff;
+  border-color: #6366f1;
+}
+
+.detail-meta {
+  color: #64748b;
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 10px;
+}
+
+.busy-panel,
+.normal-panel {
+  margin-top: 14px;
+  line-height: 1.55;
+}
+
+.feedback-panel {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.feedback-btn {
+  border: 1px solid #94a3b8;
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.empty {
+  padding: 24px;
+  color: #64748b;
+}
+
+.error {
+  margin-bottom: 10px;
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  padding: 8px 10px;
+  border-radius: 8px;
+}

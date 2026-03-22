@@ -10,6 +10,20 @@ def _split_csv(raw: str) -> set[str]:
     return {v.strip().lower() for v in raw.split(",") if v.strip()}
 
 
+def clamp_score(score: float) -> float:
+    return max(0.0, min(1.0, score))
+
+
+def bucket_for_score(score: float) -> str:
+    if score >= 0.75:
+        return "now"
+    if score >= 0.5:
+        return "read"
+    if score >= 0.3:
+        return "skim"
+    return "later"
+
+
 def score_email(email: Email, preference: Optional[UserPreference]) -> tuple[float, str, bool]:
     score = 0.1
 
@@ -38,15 +52,5 @@ def score_email(email: Email, preference: Optional[UserPreference]) -> tuple[flo
     if email.word_count > 350:
         score -= long_penalty
 
-    score = max(0.0, min(1.0, score))
-
-    if score >= 0.75:
-        bucket = "now"
-    elif score >= 0.5:
-        bucket = "read"
-    elif score >= 0.3:
-        bucket = "skim"
-    else:
-        bucket = "later"
-
-    return score, bucket, needs_action
+    score = clamp_score(score)
+    return score, bucket_for_score(score), needs_action

@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models import Email, User, UserPreference
+from app.services.adaptation import rescore_user_emails
 from app.services.auth import get_valid_access_token
 from app.services.ranking import score_email
 from app.services.summary import generate_busy_summary
@@ -172,5 +173,8 @@ def sync_gmail_inbox(db: Session, user: User, max_results: int = 30) -> int:
         synced += 1
 
     user.gmail_history_id = str(profile.get("historyId")) if profile.get("historyId") else user.gmail_history_id
+    if synced:
+        db.flush()
+        rescore_user_emails(db, user, pref)
     db.commit()
     return synced

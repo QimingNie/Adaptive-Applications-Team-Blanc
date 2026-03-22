@@ -50,6 +50,7 @@ class EventRequest(BaseModel):
 
 class SyncRequest(BaseModel):
     seed_count: int = Field(default=20, ge=1, le=200)
+    trim_to_count: bool = False
 
 
 class MessageResponse(BaseModel):

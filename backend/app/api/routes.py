@@ -20,7 +20,7 @@ from app.schemas import (
     SyncRequest,
     ViewMode,
 )
-from app.services.ranking import score_email
+from app.services.adaptation import rescore_user_emails
 from app.services.gmail_sync import sync_gmail_inbox
 from app.services.sync import ensure_demo_user, seed_mock_emails
 from app.services.auth import (
@@ -151,7 +151,7 @@ def sync_run(
         created = sync_gmail_inbox(db, user, payload.seed_count)
         return MessageResponse(message=f"Synced {created} emails from Gmail.")
 
-    created = seed_mock_emails(db, user, payload.seed_count)
+    created = seed_mock_emails(db, user, payload.seed_count, trim_to_count=payload.trim_to_count)
     return MessageResponse(message=f"Synced {created} demo emails.")
 
 
@@ -205,22 +205,33 @@ def feedback(
         db.add(pref)
         db.flush()
 
-    if payload.feedback_type == "important":
-        senders = {s.strip().lower() for s in pref.important_senders.split(",") if s.strip()}
-        senders.add(email.sender.lower())
-        pref.important_senders = ",".join(sorted(senders))
-    elif payload.feedback_type == "not_important":
-        email.score = max(0.0, email.score - 0.25)
-    elif payload.feedback_type == "mute_sender":
-        senders = {s.strip().lower() for s in pref.muted_senders.split(",") if s.strip()}
-        senders.add(email.sender.lower())
-        pref.muted_senders = ",".join(sorted(senders))
-    elif payload.feedback_type == "remind_sender":
-        senders = {s.strip().lower() for s in pref.important_senders.split(",") if s.strip()}
-        senders.add(email.sender.lower())
-        pref.important_senders = ",".join(sorted(senders))
+    important_senders = {s.strip().lower() for s in pref.important_senders.split(",") if s.strip()}
+    muted_senders = {s.strip().lower() for s in pref.muted_senders.split(",") if s.strip()}
+    sender = email.sender.lower()
 
-    email.score, email.bucket, email.needs_action = score_email(email, pref)
+    if payload.feedback_type == "important":
+        important_senders.add(sender)
+        muted_senders.discard(sender)
+    elif payload.feedback_type == "mute_sender":
+        muted_senders.add(sender)
+        important_senders.discard(sender)
+    elif payload.feedback_type == "remind_sender":
+        important_senders.add(sender)
+        muted_senders.discard(sender)
+
+    pref.important_senders = ",".join(sorted(important_senders))
+    pref.muted_senders = ",".join(sorted(muted_senders))
+
+    db.add(
+        InteractionEvent(
+            user_id=user.id,
+            email_id=email.id,
+            event_type=payload.feedback_type,
+            dwell_ms=0,
+        )
+    )
+
+    rescore_user_emails(db, user, pref)
     db.commit()
 
     return MessageResponse(message="Feedback applied.")
@@ -246,13 +257,8 @@ def create_event(
 
     if payload.event_type == "open":
         email.is_read = True
-        email.score = min(1.0, email.score + 0.05)
-    elif payload.event_type == "quick_close":
-        email.score = max(0.0, email.score - 0.07)
-    elif payload.event_type == "reply":
-        email.score = min(1.0, email.score + 0.12)
 
     pref = db.query(UserPreference).filter(UserPreference.user_id == user.id).first()
-    email.score, email.bucket, email.needs_action = score_email(email, pref)
+    rescore_user_emails(db, user, pref)
     db.commit()
     return MessageResponse(message="Event recorded.")

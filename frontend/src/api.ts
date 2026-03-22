@@ -3,6 +3,10 @@ import type { Bucket, FeedbackType, InboxResponse, ViewMode, EmailItem } from ".
 const API_BASE = "http://127.0.0.1:8000/api";
 const USER_EMAIL_KEY = "smart_inbox_user_email";
 
+interface SeedInboxOptions {
+  trimToCount?: boolean;
+}
+
 async function parse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const text = await res.text();
@@ -45,12 +49,15 @@ export async function getAuthStatus(): Promise<{ connected: boolean; email: stri
   );
 }
 
-export async function seedInbox(seedCount = 24): Promise<void> {
+export async function seedInbox(seedCount = 24, options: SeedInboxOptions = {}): Promise<void> {
   await parse(
     await fetch(`${API_BASE}/sync/run`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...getHeaders() },
-      body: JSON.stringify({ seed_count: seedCount })
+      body: JSON.stringify({
+        seed_count: seedCount,
+        trim_to_count: options.trimToCount ?? false
+      })
     })
   );
 }

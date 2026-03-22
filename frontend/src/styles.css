@@ -32,6 +32,27 @@ body {
   color: #334155;
 }
 
+.demo-controls {
+  margin-top: 10px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  color: #334155;
+}
+
+.demo-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.demo-note {
+  color: #64748b;
+  font-size: 14px;
+}
+
 .tabs {
   display: flex;
   gap: 8px;

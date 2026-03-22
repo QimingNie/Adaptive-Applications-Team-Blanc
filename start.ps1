@@ -9,6 +9,25 @@ $backendDir = Join-Path $root "backend"
 $frontendDir = Join-Path $root "frontend"
 $venvDir = Join-Path $backendDir ".venv"
 $venvPython = Join-Path $venvDir "Scripts\python.exe"
+$venvActivate = Join-Path $venvDir "Scripts\Activate.ps1"
+
+function Test-VenvHasPip {
+    param(
+        [string]$PythonPath
+    )
+
+    if (-not (Test-Path $PythonPath)) {
+        return $false
+    }
+
+    try {
+        & $PythonPath -m pip --version *> $null
+        return $LASTEXITCODE -eq 0
+    }
+    catch {
+        return $false
+    }
+}
 
 if (-not (Test-Path $backendDir)) {
     throw "Backend directory does not exist: $backendDir"
@@ -24,9 +43,24 @@ if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
     throw "npm.cmd was not found. Please install Node.js."
 }
 
-if (-not (Test-Path $venvPython)) {
-    Write-Host "Creating backend virtual environment..."
-    & python -m venv $venvDir
+if ((-not (Test-Path $venvPython)) -or (-not (Test-VenvHasPip -PythonPath $venvPython))) {
+    if (Test-Path $venvDir) {
+        Write-Host "Rebuilding backend virtual environment because the existing one is incomplete..."
+        & python -m venv --clear $venvDir
+    }
+    else {
+        Write-Host "Creating backend virtual environment..."
+        & python -m venv $venvDir
+    }
+}
+
+if (-not (Test-VenvHasPip -PythonPath $venvPython)) {
+    Write-Host "Bootstrapping pip in the backend virtual environment..."
+    & $venvPython -m ensurepip --upgrade
+}
+
+if (-not (Test-VenvHasPip -PythonPath $venvPython)) {
+    throw "Backend virtual environment is missing pip. Delete backend\.venv and rerun .\start.ps1."
 }
 
 if (-not $SkipInstall) {
@@ -64,3 +98,4 @@ Write-Host " - Backend: http://127.0.0.1:8000"
 Write-Host " - Frontend: http://127.0.0.1:5173"
 Write-Host ""
 Write-Host "Tip: if dependencies are already installed, use .\start.ps1 -SkipInstall for faster startup."
+Write-Host "Manual backend activation (optional): & '$venvActivate'"

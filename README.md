@@ -57,6 +57,8 @@ From repo root:
 .\start.ps1
 ```
 
+The quick-start script uses `backend\.venv\Scripts\python.exe` directly, so you do not need to activate the virtual environment first.
+
 If dependencies are already installed:
 
 ```powershell
@@ -67,10 +69,10 @@ If dependencies are already installed:
 
 #### Backend
 
-```bash
+```powershell
 cd backend
 python -m venv .venv
-.venv\Scripts\activate
+& .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```

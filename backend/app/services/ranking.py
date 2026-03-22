@@ -1,3 +1,5 @@
+from typing import Optional
+
 from app.models import Email, UserPreference
 
 
@@ -8,7 +10,7 @@ def _split_csv(raw: str) -> set[str]:
     return {v.strip().lower() for v in raw.split(",") if v.strip()}
 
 
-def score_email(email: Email, preference: UserPreference | None) -> tuple[float, str, bool]:
+def score_email(email: Email, preference: Optional[UserPreference]) -> tuple[float, str, bool]:
     score = 0.1
 
     muted = set()

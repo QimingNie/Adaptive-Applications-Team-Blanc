@@ -1,6 +1,7 @@
 import base64
 from datetime import datetime
 from email.utils import parseaddr
+from typing import Optional
 
 import httpx
 from fastapi import HTTPException
@@ -14,7 +15,7 @@ from app.services.summary import generate_busy_summary
 GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 
 
-def _gmail_get(client: httpx.Client, token: str, path: str, params: dict | None = None) -> dict:
+def _gmail_get(client: httpx.Client, token: str, path: str, params: Optional[dict] = None) -> dict:
     res = client.get(
         f"{GMAIL_BASE}{path}",
         params=params or {},

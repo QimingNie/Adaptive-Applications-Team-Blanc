@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -62,7 +62,7 @@ class AuthStartResponse(BaseModel):
 
 class AuthStatusResponse(BaseModel):
     connected: bool
-    email: str | None = None
+    email: Optional[str] = None
 
 
 class AuthConfigResponse(BaseModel):

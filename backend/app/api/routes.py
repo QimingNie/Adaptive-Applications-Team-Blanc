@@ -1,4 +1,5 @@
 from urllib.parse import urlencode, urlparse, parse_qsl, urlunparse
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -36,7 +37,7 @@ router = APIRouter()
 
 
 def get_current_user(
-    db: Session = Depends(get_db), x_user_email: str | None = Header(default=None)
+    db: Session = Depends(get_db), x_user_email: Optional[str] = Header(default=None)
 ):
     if not x_user_email:
         return ensure_demo_user(db)
@@ -118,7 +119,7 @@ def auth_complete(redirect: str = Query(...)):
 
 @router.get("/auth/status", response_model=AuthStatusResponse)
 def auth_status(
-    x_user_email: str | None = Header(default=None),
+    x_user_email: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
     if not x_user_email:
@@ -142,7 +143,7 @@ def auth_debug_config():
 @router.post("/sync/run", response_model=MessageResponse)
 def sync_run(
     payload: SyncRequest,
-    x_user_email: str | None = Header(default=None),
+    x_user_email: Optional[str] = Header(default=None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):

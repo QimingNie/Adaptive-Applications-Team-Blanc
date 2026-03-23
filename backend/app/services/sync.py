@@ -331,7 +331,7 @@ def seed_mock_emails(
             received_at=received_at,
         )
         score, bucket, needs_action = score_email(mail, preference)
-        summary, action_items = generate_busy_summary(mail)
+        summary, action_items = generate_busy_summary(mail, allow_llm=False)
         mail.score = score
         mail.bucket = bucket
         mail.needs_action = needs_action

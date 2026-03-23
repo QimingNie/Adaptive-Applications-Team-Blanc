@@ -13,6 +13,8 @@ export function EmailDetail({ email, mode, onModeChange, onFeedback }: Props) {
     return <div className="detail empty">Select an email to view details.</div>;
   }
 
+  const busySummary = email.busy_summary || email.snippet;
+
   return (
     <section className="detail">
       <div className="detail-header">
@@ -38,10 +40,16 @@ export function EmailDetail({ email, mode, onModeChange, onFeedback }: Props) {
       </div>
       {mode === "busy" ? (
         <div className="busy-panel">
-          <h3>Summary</h3>
-          <p>{email.busy_summary || email.snippet}</p>
-          <h4>Action Items</h4>
-          <p>{email.action_items || "No explicit action detected."}</p>
+          <div className="busy-grid">
+            <div className="busy-section">
+              <h4>Action Items</h4>
+              <p>{email.action_items || "No explicit action detected."}</p>
+            </div>
+          </div>
+          <div className="busy-section source-preview">
+            <h4>Busy Summary</h4>
+            <p>{busySummary}</p>
+          </div>
         </div>
       ) : (
         <div className="normal-panel">

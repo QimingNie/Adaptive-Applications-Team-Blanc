@@ -22,6 +22,7 @@ from app.schemas import (
 )
 from app.services.adaptation import rescore_user_emails
 from app.services.gmail_sync import sync_gmail_inbox
+from app.services.summary import generate_busy_summary, summary_needs_refresh
 from app.services.sync import ensure_demo_user, seed_mock_emails
 from app.services.auth import (
     build_google_auth_url,
@@ -183,6 +184,12 @@ def get_email(
         raise HTTPException(status_code=404, detail="Email not found")
 
     if mode == "busy":
+        if summary_needs_refresh(email):
+            summary, action_items = generate_busy_summary(email)
+            email.busy_summary = summary
+            email.action_items = action_items
+            db.commit()
+            db.refresh(email)
         email.body = ""
 
     return email

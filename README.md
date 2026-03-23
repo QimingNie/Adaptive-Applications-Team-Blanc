@@ -119,6 +119,11 @@ Set values in `backend/.env`:
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REDIRECT_URI`
 - `FRONTEND_OAUTH_DONE_URI`
+- Optional busy-summary LLM settings:
+  - `SUMMARY_PROVIDER=off|openai|ollama`
+  - `SUMMARY_MODEL`
+  - `SUMMARY_API_BASE_URL`
+  - `SUMMARY_API_KEY`
 
 Debug config status:
 
@@ -230,7 +235,11 @@ Current feedback/event ingestion lives in:
 - Gmail-connected users use real Gmail sync in `services/gmail_sync.py`.
 - Without Gmail auth header, system uses demo sync in `services/sync.py`.
 - Access token auto-refresh is implemented in `services/auth.py`.
-- Busy mode summary is currently heuristic in `services/summary.py` and can be replaced with LLM calls.
+- Busy mode summary uses `services/summary.py`.
+- By default, summaries fall back to a heuristic summary so the app works with no AI setup.
+- Set `SUMMARY_PROVIDER=openai` to use an OpenAI-compatible `/chat/completions` endpoint.
+- Set `SUMMARY_PROVIDER=ollama` and `SUMMARY_API_BASE_URL=http://127.0.0.1:11434` to use a local Ollama model without an API key.
+- The LLM path is only used for longer emails; short emails continue to use the lightweight heuristic path.
 
 ---
 

@@ -23,14 +23,24 @@ class EmailBase(BaseModel):
     needs_action: bool
 
 
+class ScoreBreakdownItem(BaseModel):
+    label: str
+    value: float
+    detail: str = ""
+    source: str
+
+
 class EmailListItem(EmailBase):
-    pass
+    reason_summary: str = ""
 
 
 class EmailDetail(EmailBase):
     body: str = ""
     busy_summary: str = ""
     action_items: str = ""
+    reason_summary: str = ""
+    model_summary: str = ""
+    score_breakdown: list["ScoreBreakdownItem"] = Field(default_factory=list)
 
 
 class InboxResponse(BaseModel):
@@ -64,6 +74,78 @@ class AuthStartResponse(BaseModel):
 class AuthStatusResponse(BaseModel):
     connected: bool
     email: Optional[str] = None
+    can_send: bool = False
+
+
+class SendEmailRequest(BaseModel):
+    to: str = Field(min_length=1)
+    cc: str = ""
+    subject: str = ""
+    body: str = ""
+    reply_to_email_id: Optional[int] = None
+
+
+class FeatureWeightItem(BaseModel):
+    key: str
+    label: str
+    description: str
+    value: float
+
+
+class SenderProfileResponse(BaseModel):
+    sender: str
+    explicit_state: str
+    learned_affinity: float
+    open_count: int
+    quick_close_count: int
+    reply_count: int
+    important_count: int
+    not_important_count: int
+    mute_count: int
+    remind_count: int
+    last_interaction_at: Optional[datetime] = None
+
+
+class ThreadProfileResponse(BaseModel):
+    thread_id: str
+    subject_hint: str = ""
+    learned_affinity: float
+    open_count: int
+    quick_close_count: int
+    reply_count: int
+    important_count: int
+    not_important_count: int
+    mute_count: int
+    remind_count: int
+    last_interaction_at: Optional[datetime] = None
+
+
+class InteractionSummaryResponse(BaseModel):
+    total_events: int = 0
+    open_count: int = 0
+    quick_close_count: int = 0
+    reply_count: int = 0
+    important_feedback_count: int = 0
+    not_important_feedback_count: int = 0
+    mute_count: int = 0
+    remind_count: int = 0
+
+
+class UserModelResponse(BaseModel):
+    email: str
+    important_senders: list[str] = Field(default_factory=list)
+    muted_senders: list[str] = Field(default_factory=list)
+    feature_weights: list[FeatureWeightItem] = Field(default_factory=list)
+    sender_profiles: list[SenderProfileResponse] = Field(default_factory=list)
+    thread_profiles: list[ThreadProfileResponse] = Field(default_factory=list)
+    interaction_summary: InteractionSummaryResponse = Field(default_factory=InteractionSummaryResponse)
+    scrutability_notes: list[str] = Field(default_factory=list)
+
+
+class UserModelUpdateRequest(BaseModel):
+    important_senders: list[str] = Field(default_factory=list)
+    muted_senders: list[str] = Field(default_factory=list)
+    feature_weights: dict[str, float] = Field(default_factory=dict)
 
 
 class AuthConfigResponse(BaseModel):

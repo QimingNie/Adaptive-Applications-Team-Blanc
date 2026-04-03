@@ -13,14 +13,22 @@ from app.schemas import (
     AuthStartResponse,
     AuthStatusResponse,
     EmailDetail,
+    EmailListItem,
     EventRequest,
     FeedbackRequest,
+    FeatureWeightItem,
     InboxResponse,
+    InteractionSummaryResponse,
     MessageResponse,
+    ScoreBreakdownItem,
+    SendEmailRequest,
     SyncRequest,
+    UserModelResponse,
+    UserModelUpdateRequest,
     ViewMode,
 )
-from app.services.adaptation import rescore_user_emails
+from app.services.gmail_send import send_gmail_message
+from app.services.adaptation import build_adaptation_context, compute_adaptive_score, rescore_user_emails
 from app.services.gmail_sync import sync_gmail_inbox
 from app.services.summary import generate_busy_summary, summary_needs_refresh
 from app.services.sync import ensure_demo_user, seed_mock_emails
@@ -30,8 +38,16 @@ from app.services.auth import (
     ensure_oauth_config,
     exchange_code_for_tokens,
     fetch_google_userinfo,
+    has_gmail_send_scope,
     upsert_user_and_token,
     validate_state,
+)
+from app.services.user_model import (
+    build_user_model_snapshot,
+    ensure_user_preference,
+    record_interaction,
+    set_sender_preferences,
+    update_feature_weights,
 )
 
 router = APIRouter()
@@ -124,12 +140,16 @@ def auth_status(
     db: Session = Depends(get_db),
 ):
     if not x_user_email:
-        return AuthStatusResponse(connected=False, email=None)
+        return AuthStatusResponse(connected=False, email=None, can_send=False)
     user = db.query(User).filter(User.email == x_user_email.strip().lower()).first()
     if not user:
-        return AuthStatusResponse(connected=False, email=None)
+        return AuthStatusResponse(connected=False, email=None, can_send=False)
     token = db.query(OAuthToken).filter(OAuthToken.user_id == user.id).first()
-    return AuthStatusResponse(connected=token is not None, email=user.email)
+    return AuthStatusResponse(
+        connected=token is not None,
+        email=user.email,
+        can_send=has_gmail_send_scope(token.scope) if token else False,
+    )
 
 
 @router.get("/auth/debug-config", response_model=AuthConfigResponse)
@@ -162,6 +182,7 @@ def get_inbox(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    preference = ensure_user_preference(db, user)
     items = (
         db.query(Email)
         .filter(Email.user_id == user.id, Email.bucket == bucket)
@@ -169,7 +190,32 @@ def get_inbox(
         .limit(100)
         .all()
     )
-    return InboxResponse(bucket=bucket, items=items)
+    context = build_adaptation_context(db, user)
+    response_items = []
+    for email in items:
+        result = compute_adaptive_score(
+            email=email,
+            preference=preference,
+            summary=context.interaction_summaries.get(email.id),
+            sender_profile=context.sender_profiles.get(email.sender.lower()),
+            thread_profile=context.thread_profiles.get(email.thread_id),
+        )
+        response_items.append(
+            EmailListItem(
+                id=email.id,
+                sender=email.sender,
+                subject=email.subject,
+                snippet=email.snippet,
+                has_attachment=email.has_attachment,
+                is_cc=email.is_cc,
+                received_at=email.received_at,
+                score=email.score,
+                bucket=email.bucket,
+                needs_action=email.needs_action,
+                reason_summary=result.reason_summary,
+            )
+        )
+    return InboxResponse(bucket=bucket, items=response_items)
 
 
 @router.get("/emails/{email_id}", response_model=EmailDetail)
@@ -182,6 +228,8 @@ def get_email(
     email = db.query(Email).filter(Email.id == email_id, Email.user_id == user.id).first()
     if not email:
         raise HTTPException(status_code=404, detail="Email not found")
+    preference = ensure_user_preference(db, user)
+    full_body = email.body
 
     if mode == "busy":
         if summary_needs_refresh(email):
@@ -190,9 +238,87 @@ def get_email(
             email.action_items = action_items
             db.commit()
             db.refresh(email)
+            full_body = email.body
         email.body = ""
 
-    return email
+    email_for_scoring = email
+    if full_body and email.body != full_body:
+        email.body = full_body
+    context = build_adaptation_context(db, user)
+    result = compute_adaptive_score(
+        email=email_for_scoring,
+        preference=preference,
+        summary=context.interaction_summaries.get(email.id),
+        sender_profile=context.sender_profiles.get(email.sender.lower()),
+        thread_profile=context.thread_profiles.get(email.thread_id),
+    )
+    return EmailDetail(
+        id=email.id,
+        sender=email.sender,
+        subject=email.subject,
+        snippet=email.snippet,
+        has_attachment=email.has_attachment,
+        is_cc=email.is_cc,
+        received_at=email.received_at,
+        score=result.score,
+        bucket=result.bucket,
+        needs_action=result.needs_action,
+        body="" if mode == "busy" else full_body,
+        busy_summary=email.busy_summary,
+        action_items=email.action_items,
+        reason_summary=result.reason_summary,
+        model_summary=result.model_summary,
+        score_breakdown=[
+            ScoreBreakdownItem(
+                label=item.label,
+                value=round(float(item.value), 4),
+                detail=item.detail,
+                source=item.source,
+            )
+            for item in result.breakdown
+        ],
+    )
+
+
+@router.post("/mail/send", response_model=MessageResponse)
+def send_email(
+    payload: SendEmailRequest,
+    x_user_email: Optional[str] = Header(default=None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not x_user_email:
+        raise HTTPException(status_code=401, detail="Connect Gmail to send messages.")
+    token = db.query(OAuthToken).filter(OAuthToken.user_id == user.id).first()
+    if not token:
+        raise HTTPException(status_code=401, detail="Gmail is not connected.")
+    if not has_gmail_send_scope(token.scope):
+        raise HTTPException(
+            status_code=403,
+            detail="Gmail send permission is not granted. Reconnect Gmail and approve send access.",
+        )
+
+    reply_to_email = None
+    if payload.reply_to_email_id is not None:
+        reply_to_email = (
+            db.query(Email)
+            .filter(Email.id == payload.reply_to_email_id, Email.user_id == user.id)
+            .first()
+        )
+        if not reply_to_email:
+            raise HTTPException(status_code=404, detail="Reply target email not found")
+
+    send_gmail_message(
+        db=db,
+        user=user,
+        to=payload.to,
+        cc=payload.cc,
+        subject=payload.subject,
+        body=payload.body,
+        reply_to_email=reply_to_email,
+    )
+
+    return MessageResponse(message="Email sent.")
 
 
 @router.post("/emails/{email_id}/feedback", response_model=MessageResponse)
@@ -206,11 +332,7 @@ def feedback(
     if not email:
         raise HTTPException(status_code=404, detail="Email not found")
 
-    pref = db.query(UserPreference).filter(UserPreference.user_id == user.id).first()
-    if not pref:
-        pref = UserPreference(user_id=user.id)
-        db.add(pref)
-        db.flush()
+    pref = ensure_user_preference(db, user)
 
     important_senders = {s.strip().lower() for s in pref.important_senders.split(",") if s.strip()}
     muted_senders = {s.strip().lower() for s in pref.muted_senders.split(",") if s.strip()}
@@ -237,6 +359,7 @@ def feedback(
             dwell_ms=0,
         )
     )
+    record_interaction(db, user, email, payload.feedback_type)
 
     rescore_user_emails(db, user, pref)
     db.commit()
@@ -261,11 +384,59 @@ def create_event(
         dwell_ms=payload.dwell_ms,
     )
     db.add(event)
+    record_interaction(db, user, email, payload.event_type)
 
     if payload.event_type == "open":
         email.is_read = True
 
-    pref = db.query(UserPreference).filter(UserPreference.user_id == user.id).first()
+    pref = ensure_user_preference(db, user)
     rescore_user_emails(db, user, pref)
     db.commit()
     return MessageResponse(message="Event recorded.")
+
+
+@router.get("/model", response_model=UserModelResponse)
+def get_user_model(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    preference = ensure_user_preference(db, user)
+    snapshot = build_user_model_snapshot(db, user, preference)
+    return UserModelResponse(
+        email=str(snapshot["email"]),
+        important_senders=list(snapshot["important_senders"]),
+        muted_senders=list(snapshot["muted_senders"]),
+        feature_weights=[FeatureWeightItem(**item) for item in snapshot["feature_weights"]],
+        sender_profiles=list(snapshot["sender_profiles"]),
+        thread_profiles=list(snapshot["thread_profiles"]),
+        interaction_summary=InteractionSummaryResponse(**snapshot["interaction_summary"]),
+        scrutability_notes=list(snapshot["scrutability_notes"]),
+    )
+
+
+@router.put("/model", response_model=UserModelResponse)
+def update_user_model(
+    payload: UserModelUpdateRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    preference = ensure_user_preference(db, user)
+    set_sender_preferences(
+        preference,
+        important=payload.important_senders,
+        muted=payload.muted_senders,
+    )
+    update_feature_weights(preference, payload.feature_weights)
+    rescore_user_emails(db, user, preference)
+    db.commit()
+    snapshot = build_user_model_snapshot(db, user, preference)
+    return UserModelResponse(
+        email=str(snapshot["email"]),
+        important_senders=list(snapshot["important_senders"]),
+        muted_senders=list(snapshot["muted_senders"]),
+        feature_weights=[FeatureWeightItem(**item) for item in snapshot["feature_weights"]],
+        sender_profiles=list(snapshot["sender_profiles"]),
+        thread_profiles=list(snapshot["thread_profiles"]),
+        interaction_summary=InteractionSummaryResponse(**snapshot["interaction_summary"]),
+        scrutability_notes=list(snapshot["scrutability_notes"]),
+    )

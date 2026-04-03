@@ -17,7 +17,14 @@ GOOGLE_SCOPES = [
     "email",
     "profile",
     "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
 ]
+
+GMAIL_SEND_SCOPES = {
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.compose",
+    "https://mail.google.com/",
+}
 
 
 def ensure_oauth_config():
@@ -174,3 +181,8 @@ def get_valid_access_token(db: Session, user: User) -> str:
     if row.expires_at <= datetime.utcnow() + timedelta(minutes=2):
         row = refresh_access_token(db, row)
     return row.access_token
+
+
+def has_gmail_send_scope(scope_value: str) -> bool:
+    scopes = {scope.strip() for scope in scope_value.split() if scope.strip()}
+    return bool(scopes & GMAIL_SEND_SCOPES)

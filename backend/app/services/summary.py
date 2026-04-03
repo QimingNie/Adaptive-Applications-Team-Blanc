@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from typing import Any, Optional
 
@@ -6,6 +7,8 @@ import httpx
 
 from app.core.config import settings
 from app.models import Email
+
+logger = logging.getLogger(__name__)
 
 
 def generate_busy_summary(email: Email, allow_llm: bool = True) -> tuple[str, str]:
@@ -17,6 +20,10 @@ def generate_busy_summary(email: Email, allow_llm: bool = True) -> tuple[str, st
         llm_result = _generate_llm_summary(email, compact)
         if llm_result:
             return llm_result
+
+    demo_summary = _generate_demo_summary(email)
+    if demo_summary:
+        return demo_summary
 
     return _generate_heuristic_summary(compact)
 
@@ -83,6 +90,103 @@ def _generate_heuristic_summary(compact: str) -> tuple[str, str]:
     return summary, " | ".join(action_items[:3])
 
 
+def _generate_demo_summary(email: Email) -> Optional[tuple[str, str]]:
+    if not (email.external_id or "").startswith("mock-"):
+        return None
+
+    sender = (email.sender or "").strip().lower()
+    subject = (email.subject or "").strip()
+    subject_l = subject.lower()
+
+    context_label = ""
+    if ": " in subject:
+        context_label = subject.split(": ", 1)[1].strip()
+
+    summary = ""
+    action_items: list[str] = []
+
+    if sender == "manager@company.com" and subject_l.startswith("please confirm the delivery timeline"):
+        summary = _with_context(
+            "Manager needs a delivery-risk confirmation before the steering call",
+            context_label,
+        )
+        action_items = [
+            "Review remaining tasks for schedule risk.",
+            "Confirm whether design sign-off is complete.",
+            "Reply with blockers and the soonest realistic date if timing slipped.",
+        ]
+    elif sender == "alerts@service.com" and subject_l.startswith("action required: security review"):
+        summary = _with_context(
+            "Security flagged unusual admin logins and needs sign-off today",
+            context_label,
+        )
+        action_items = [
+            "Review the flagged sessions in the access report.",
+            "Remove any permissions that should no longer be active.",
+            "Confirm final status before the audit deadline.",
+        ]
+    elif sender == "teammate@company.com" and subject_l.startswith("project thread update"):
+        summary = _with_context(
+            "Design is approved, but the rollout checklist still needs review before release notes go out",
+            context_label,
+        )
+        action_items = [
+            "Review the customer support rollout checklist.",
+            "Confirm ownership for weekend monitoring.",
+            "Send any edits before tomorrow morning.",
+        ]
+    elif sender == "newsletter@weekly.io" and subject_l.startswith("weekly digest: product updates"):
+        summary = _with_context(
+            "Weekly digest shares product metrics and planning notes with no immediate action required",
+            context_label,
+        )
+        action_items = [
+            "Skim the onboarding drop-off section before planning.",
+        ]
+    elif sender == "noreply@platform.com" and subject_l.startswith("subscription offer this week"):
+        summary = _with_context(
+            "Promotional storage upgrade offer includes pricing and retention options, but no urgent action is needed",
+            context_label,
+        )
+        action_items = [
+            "Review plan pricing before renewal if storage is a concern.",
+        ]
+    elif sender == "manager@company.com" and subject_l.startswith("customer escalation for review"):
+        summary = _with_context(
+            "Manager needs a short recovery-plan summary for a customer escalation by noon",
+            context_label,
+        )
+        action_items = [
+            "Review the incident notes and root cause summary.",
+            "Draft two customer-facing bullet points.",
+            "Send the recovery-plan input before noon.",
+        ]
+    elif sender == "teammate@company.com" and subject_l.startswith("notes from vendor call"):
+        summary = _with_context(
+            "Vendor is ready to proceed once we confirm the event schema and retry behavior",
+            context_label,
+        )
+        action_items = [
+            "Review the proposed payload fields.",
+            "Confirm the retry behavior and webhook ordering approach.",
+            "Send approval so the vendor can start next week.",
+        ]
+    elif sender == "alerts@service.com" and subject_l.startswith("reminder: backup policy review"):
+        summary = _with_context(
+            "Backup policy changes need review before Friday approval",
+            context_label,
+        )
+        action_items = [
+            "Check the proposed retention window against legal requirements.",
+            "Confirm whether the on-call rotation should change.",
+            "Reply before the document is locked for approval.",
+        ]
+
+    if not summary:
+        return None
+    return _finalize_summary(summary), " | ".join(action_items[:3])
+
+
 def _generate_llm_summary(email: Email, compact: str) -> Optional[tuple[str, str]]:
     provider = settings.summary_provider.strip().lower()
 
@@ -91,7 +195,31 @@ def _generate_llm_summary(email: Email, compact: str) -> Optional[tuple[str, str
             return _call_openai_compatible(email, compact)
         if provider == "ollama":
             return _call_ollama(email, compact)
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code if exc.response else "unknown"
+        response_text = _trim_log_text(exc.response.text if exc.response else "")
+        logger.warning(
+            "Busy summary LLM request failed with HTTP %s for provider=%s model=%s body=%s",
+            status_code,
+            provider,
+            settings.summary_model.strip(),
+            response_text,
+        )
+        return None
+    except httpx.RequestError as exc:
+        logger.warning(
+            "Busy summary LLM request error for provider=%s model=%s error=%s",
+            provider,
+            settings.summary_model.strip(),
+            str(exc),
+        )
+        return None
     except Exception:
+        logger.exception(
+            "Busy summary LLM failed unexpectedly for provider=%s model=%s",
+            provider,
+            settings.summary_model.strip(),
+        )
         return None
 
     return None
@@ -214,3 +342,24 @@ def _extract_json_object(raw_content: str) -> Optional[dict[str, Any]]:
             return parsed if isinstance(parsed, dict) else None
         except json.JSONDecodeError:
             return None
+
+
+def _trim_log_text(value: str, limit: int = 280) -> str:
+    compact = " ".join(value.split()).strip()
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 3] + "..."
+
+
+def _with_context(base_summary: str, context_label: str) -> str:
+    if not context_label:
+        return base_summary
+    return f"{base_summary} for {context_label}"
+
+
+def _finalize_summary(summary: str) -> str:
+    normalized = " ".join(summary.split()).strip()
+    if not normalized:
+        return ""
+    normalized = normalized[:160].rstrip(". ")
+    return normalized + "."

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -11,7 +12,7 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    gmail_history_id: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
+    gmail_history_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     emails = relationship("Email", back_populates="user")

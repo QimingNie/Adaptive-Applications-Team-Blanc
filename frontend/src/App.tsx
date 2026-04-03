@@ -17,6 +17,18 @@ import { EmailList } from "./components/EmailList";
 import type { Bucket, EmailItem, FeedbackType, ViewMode } from "./types";
 import "./styles.css";
 
+const DEMO_FOCUS_MODE_KEY = "smart_inbox_demo_focus_mode";
+const DEMO_FOCUS_COUNT = 6;
+const DEMO_DEFAULT_COUNT = 32;
+
+function getStoredDemoFocusMode(): boolean {
+  return localStorage.getItem(DEMO_FOCUS_MODE_KEY) === "true";
+}
+
+function setStoredDemoFocusMode(enabled: boolean) {
+  localStorage.setItem(DEMO_FOCUS_MODE_KEY, enabled ? "true" : "false");
+}
+
 function App() {
   const [bucket, setBucket] = useState<Bucket>("now");
   const [items, setItems] = useState<EmailItem[]>([]);
@@ -27,6 +39,7 @@ function App() {
   const [error, setError] = useState<string>("");
   const [authEmail, setAuthEmail] = useState<string | null>(getStoredUserEmail());
   const [authConnected, setAuthConnected] = useState(false);
+  const [demoFocusMode, setDemoFocusMode] = useState<boolean>(getStoredDemoFocusMode());
   const bootedRef = useRef(false);
 
   const selectedFromList = useMemo(
@@ -34,19 +47,32 @@ function App() {
     [items, selectedId]
   );
 
-  async function loadBucket(target: Bucket) {
+  async function loadBucket(target: Bucket, preferredId: number | null = null) {
     setLoading(true);
     setError("");
     try {
       const inbox = await getInbox(target);
       setItems(inbox.items);
-      const firstId = inbox.items[0]?.id ?? null;
-      setSelectedId(firstId);
+      const nextSelectedId =
+        preferredId != null && inbox.items.some((item) => item.id === preferredId)
+          ? preferredId
+          : (inbox.items[0]?.id ?? null);
+      setSelectedId(nextSelectedId);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
+  }
+
+  function getDemoSeedCount(focusMode: boolean) {
+    return focusMode ? DEMO_FOCUS_COUNT : DEMO_DEFAULT_COUNT;
+  }
+
+  async function syncDemoInbox(targetBucket: Bucket, focusMode = demoFocusMode) {
+    await seedInbox(getDemoSeedCount(focusMode), { trimToCount: true });
+    setBucket(targetBucket);
+    await loadBucket(targetBucket);
   }
 
   useEffect(() => {
@@ -71,9 +97,17 @@ function App() {
         setAuthConnected(status.connected);
         if (status.email) {
           setAuthEmail(status.email);
+        } else if (!emailFromCallback) {
+          clearStoredUserEmail();
+          setAuthEmail(null);
         }
 
-        await seedInbox(32);
+        const activeEmail = status.email ?? emailFromCallback;
+        if (activeEmail) {
+          await seedInbox(DEMO_DEFAULT_COUNT);
+        } else {
+          await seedInbox(getDemoSeedCount(demoFocusMode), { trimToCount: true });
+        }
         await loadBucket("now");
       } catch (e) {
         setError((e as Error).message);
@@ -93,11 +127,29 @@ function App() {
     }
   }
 
-  function onUseDemo() {
+  async function onUseDemo() {
     clearStoredUserEmail();
     setAuthEmail(null);
     setAuthConnected(false);
-    void loadBucket(bucket);
+    try {
+      await syncDemoInbox("now");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function onDemoFocusModeChange(enabled: boolean) {
+    const previous = demoFocusMode;
+    setDemoFocusMode(enabled);
+    setStoredDemoFocusMode(enabled);
+
+    try {
+      await syncDemoInbox("now", enabled);
+    } catch (e) {
+      setDemoFocusMode(previous);
+      setStoredDemoFocusMode(previous);
+      setError((e as Error).message);
+    }
   }
 
   useEffect(() => {
@@ -126,8 +178,17 @@ function App() {
     if (!selected) {
       return;
     }
-    await sendFeedback(selected.id, action);
-    await loadBucket(bucket);
+    try {
+      await sendFeedback(selected.id, action);
+      const updated = await getEmail(selected.id, mode);
+      setSelected(updated);
+      if (updated.bucket !== bucket) {
+        setBucket(updated.bucket);
+      }
+      await loadBucket(updated.bucket, updated.id);
+    } catch (e) {
+      setError((e as Error).message);
+    }
   }
 
   return (
@@ -143,11 +204,29 @@ function App() {
             </button>
           ) : null}
           {authEmail ? (
-            <button className="feedback-btn" onClick={onUseDemo}>
+            <button className="feedback-btn" onClick={() => void onUseDemo()}>
               Switch to Demo
             </button>
           ) : null}
         </div>
+        {!authEmail ? (
+          <div className="demo-controls">
+            <label className="demo-toggle">
+              <input
+                type="checkbox"
+                checked={demoFocusMode}
+                disabled={loading}
+                onChange={(event) => void onDemoFocusModeChange(event.target.checked)}
+              />
+              <span>Focus mode</span>
+            </label>
+            <span className="demo-note">
+              {demoFocusMode
+                ? `Keeping ${DEMO_FOCUS_COUNT} demo emails so score changes are easier to watch.`
+                : `Keeping ${DEMO_DEFAULT_COUNT} demo emails for the fuller demo inbox.`}
+            </span>
+          </div>
+        ) : null}
       </header>
       <BucketTabs value={bucket} onChange={(b) => void onBucketChange(b)} />
       {error ? <div className="error">{error}</div> : null}

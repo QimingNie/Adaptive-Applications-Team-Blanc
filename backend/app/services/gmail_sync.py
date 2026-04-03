@@ -1,12 +1,14 @@
 import base64
 from datetime import datetime
 from email.utils import parseaddr
+from typing import Optional
 
 import httpx
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models import Email, User, UserPreference
+from app.services.adaptation import rescore_user_emails
 from app.services.auth import get_valid_access_token
 from app.services.ranking import score_email
 from app.services.summary import generate_busy_summary
@@ -14,7 +16,7 @@ from app.services.summary import generate_busy_summary
 GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 
 
-def _gmail_get(client: httpx.Client, token: str, path: str, params: dict | None = None) -> dict:
+def _gmail_get(client: httpx.Client, token: str, path: str, params: Optional[dict] = None) -> dict:
     res = client.get(
         f"{GMAIL_BASE}{path}",
         params=params or {},
@@ -162,7 +164,7 @@ def sync_gmail_inbox(db: Session, user: User, max_results: int = 30) -> int:
         mail.received_at = received_at
 
         score, bucket, needs_action = score_email(mail, pref)
-        summary, action_items = generate_busy_summary(mail)
+        summary, action_items = generate_busy_summary(mail, allow_llm=False)
         mail.score = score
         mail.bucket = bucket
         mail.needs_action = needs_action
@@ -171,5 +173,8 @@ def sync_gmail_inbox(db: Session, user: User, max_results: int = 30) -> int:
         synced += 1
 
     user.gmail_history_id = str(profile.get("historyId")) if profile.get("historyId") else user.gmail_history_id
+    if synced:
+        db.flush()
+        rescore_user_emails(db, user, pref)
     db.commit()
     return synced

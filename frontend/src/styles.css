@@ -32,6 +32,27 @@ body {
   color: #334155;
 }
 
+.demo-controls {
+  margin-top: 10px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  color: #334155;
+}
+
+.demo-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.demo-note {
+  color: #64748b;
+  font-size: 14px;
+}
+
 .tabs {
   display: flex;
   gap: 8px;
@@ -145,6 +166,32 @@ body {
 .normal-panel {
   margin-top: 14px;
   line-height: 1.55;
+}
+
+.busy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.busy-section {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.busy-section h3,
+.busy-section h4 {
+  margin: 0 0 8px;
+}
+
+.busy-section p {
+  margin: 0;
+}
+
+.source-preview {
+  margin-top: 12px;
 }
 
 .feedback-panel {

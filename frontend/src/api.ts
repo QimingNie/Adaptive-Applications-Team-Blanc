@@ -1,4 +1,13 @@
-import type { Bucket, FeedbackType, InboxResponse, ViewMode, EmailItem } from "./types";
+import type {
+  Bucket,
+  FeedbackType,
+  InboxResponse,
+  SendEmailInput,
+  UserModel,
+  UserModelUpdateInput,
+  ViewMode,
+  EmailItem
+} from "./types";
 
 const API_BASE = "http://127.0.0.1:8000/api";
 const USER_EMAIL_KEY = "smart_inbox_user_email";
@@ -41,8 +50,16 @@ export async function getGoogleAuthUrl(): Promise<string> {
   return data.auth_url;
 }
 
-export async function getAuthStatus(): Promise<{ connected: boolean; email: string | null }> {
-  return parse<{ connected: boolean; email: string | null }>(
+export async function getAuthStatus(): Promise<{
+  connected: boolean;
+  email: string | null;
+  can_send: boolean;
+}> {
+  return parse<{
+    connected: boolean;
+    email: string | null;
+    can_send: boolean;
+  }>(
     await fetch(`${API_BASE}/auth/status`, {
       headers: getHeaders()
     })
@@ -98,6 +115,34 @@ export async function trackEvent(
       method: "POST",
       headers: { "Content-Type": "application/json", ...getHeaders() },
       body: JSON.stringify({ email_id: emailId, event_type: eventType, dwell_ms: dwellMs })
+    })
+  );
+}
+
+export async function sendEmail(payload: SendEmailInput): Promise<void> {
+  await parse(
+    await fetch(`${API_BASE}/mail/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...getHeaders() },
+      body: JSON.stringify(payload)
+    })
+  );
+}
+
+export async function getUserModel(): Promise<UserModel> {
+  return parse<UserModel>(
+    await fetch(`${API_BASE}/model`, {
+      headers: getHeaders()
+    })
+  );
+}
+
+export async function updateUserModel(payload: UserModelUpdateInput): Promise<UserModel> {
+  return parse<UserModel>(
+    await fetch(`${API_BASE}/model`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...getHeaders() },
+      body: JSON.stringify(payload)
     })
   );
 }

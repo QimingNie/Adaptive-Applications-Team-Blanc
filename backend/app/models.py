@@ -1,7 +1,16 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -53,8 +62,43 @@ class UserPreference(Base):
     muted_senders: Mapped[str] = mapped_column(Text, default="")
     important_senders: Mapped[str] = mapped_column(Text, default="")
     long_email_penalty: Mapped[float] = mapped_column(Float, default=0.15)
+    feature_weights_json: Mapped[str] = mapped_column(Text, default="")
 
     user = relationship("User", back_populates="preferences")
+
+
+class SenderProfile(Base):
+    __tablename__ = "sender_profiles"
+    __table_args__ = (UniqueConstraint("user_id", "sender", name="uq_sender_profiles_user_sender"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), index=True)
+    sender: Mapped[str] = mapped_column(String(255), index=True)
+    open_count: Mapped[int] = mapped_column(Integer, default=0)
+    quick_close_count: Mapped[int] = mapped_column(Integer, default=0)
+    reply_count: Mapped[int] = mapped_column(Integer, default=0)
+    important_count: Mapped[int] = mapped_column(Integer, default=0)
+    not_important_count: Mapped[int] = mapped_column(Integer, default=0)
+    mute_count: Mapped[int] = mapped_column(Integer, default=0)
+    remind_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_interaction_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, default=None)
+
+
+class ThreadProfile(Base):
+    __tablename__ = "thread_profiles"
+    __table_args__ = (UniqueConstraint("user_id", "thread_id", name="uq_thread_profiles_user_thread"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), index=True)
+    thread_id: Mapped[str] = mapped_column(String(255), index=True)
+    open_count: Mapped[int] = mapped_column(Integer, default=0)
+    quick_close_count: Mapped[int] = mapped_column(Integer, default=0)
+    reply_count: Mapped[int] = mapped_column(Integer, default=0)
+    important_count: Mapped[int] = mapped_column(Integer, default=0)
+    not_important_count: Mapped[int] = mapped_column(Integer, default=0)
+    mute_count: Mapped[int] = mapped_column(Integer, default=0)
+    remind_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_interaction_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, default=None)
 
 
 class InteractionEvent(Base):

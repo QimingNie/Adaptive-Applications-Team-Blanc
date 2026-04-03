@@ -6,20 +6,66 @@ import {
   getGoogleAuthUrl,
   getInbox,
   getStoredUserEmail,
+  getUserModel,
   seedInbox,
+  sendEmail,
   sendFeedback,
   setStoredUserEmail,
-  trackEvent
+  trackEvent,
+  updateUserModel
 } from "./api";
 import { BucketTabs } from "./components/BucketTabs";
+import { ComposePanel } from "./components/ComposePanel";
 import { EmailDetail } from "./components/EmailDetail";
 import { EmailList } from "./components/EmailList";
-import type { Bucket, EmailItem, FeedbackType, ViewMode } from "./types";
+import { ModelInspector } from "./components/ModelInspector";
+import type { Bucket, EmailItem, FeedbackType, UserModel, ViewMode } from "./types";
 import "./styles.css";
 
 const DEMO_FOCUS_MODE_KEY = "smart_inbox_demo_focus_mode";
 const DEMO_FOCUS_COUNT = 6;
 const DEMO_DEFAULT_COUNT = 32;
+
+interface ComposeDraft {
+  to: string;
+  cc: string;
+  subject: string;
+  body: string;
+  replyToEmailId: number | null;
+}
+
+function createEmptyDraft(): ComposeDraft {
+  return {
+    to: "",
+    cc: "",
+    subject: "",
+    body: "",
+    replyToEmailId: null
+  };
+}
+
+function buildReplySubject(subject: string) {
+  return /^re:/i.test(subject) ? subject : `Re: ${subject}`;
+}
+
+function buildReplyBody(email: EmailItem) {
+  const source = (email.body || email.snippet || "").trim();
+  if (!source) {
+    return "";
+  }
+  const quoted = source
+    .split(/\r?\n/)
+    .map((line) => `> ${line}`)
+    .join("\n");
+  return `\n\nOn ${new Date(email.received_at).toLocaleString()}, ${email.sender} wrote:\n${quoted}`;
+}
+
+function parseSenderList(value: string) {
+  return value
+    .split(/[\n,;]+/)
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
 
 function getStoredDemoFocusMode(): boolean {
   return localStorage.getItem(DEMO_FOCUS_MODE_KEY) === "true";
@@ -39,13 +85,55 @@ function App() {
   const [error, setError] = useState<string>("");
   const [authEmail, setAuthEmail] = useState<string | null>(getStoredUserEmail());
   const [authConnected, setAuthConnected] = useState(false);
+  const [canSend, setCanSend] = useState(false);
   const [demoFocusMode, setDemoFocusMode] = useState<boolean>(getStoredDemoFocusMode());
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [draft, setDraft] = useState<ComposeDraft>(createEmptyDraft());
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [sendStatus, setSendStatus] = useState("");
+  const [modelOpen, setModelOpen] = useState(false);
+  const [modelLoading, setModelLoading] = useState(false);
+  const [modelSaving, setModelSaving] = useState(false);
+  const [userModel, setUserModel] = useState<UserModel | null>(null);
+  const [importantDraft, setImportantDraft] = useState("");
+  const [mutedDraft, setMutedDraft] = useState("");
+  const [weightDraft, setWeightDraft] = useState<Record<string, string>>({});
   const bootedRef = useRef(false);
+  const selectedStartRef = useRef<number | null>(null);
+  const lastSelectedIdRef = useRef<number | null>(null);
 
   const selectedFromList = useMemo(
     () => items.find((item) => item.id === selectedId) || null,
     [items, selectedId]
   );
+  const activeEmail = selected ?? selectedFromList;
+
+  function applyModelDrafts(model: UserModel) {
+    setImportantDraft(model.important_senders.join(", "));
+    setMutedDraft(model.muted_senders.join(", "));
+    setWeightDraft(
+      Object.fromEntries(model.feature_weights.map((weight) => [weight.key, String(weight.value)]))
+    );
+  }
+
+  async function loadUserModel(silent = false) {
+    if (!silent) {
+      setModelLoading(true);
+    }
+    try {
+      const model = await getUserModel();
+      setUserModel(model);
+      applyModelDrafts(model);
+    } catch (e) {
+      if (!silent) {
+        setError((e as Error).message);
+      }
+    } finally {
+      if (!silent) {
+        setModelLoading(false);
+      }
+    }
+  }
 
   async function loadBucket(target: Bucket, preferredId: number | null = null) {
     setLoading(true);
@@ -95,11 +183,13 @@ function App() {
 
         const status = await getAuthStatus();
         setAuthConnected(status.connected);
+        setCanSend(status.can_send);
         if (status.email) {
           setAuthEmail(status.email);
         } else if (!emailFromCallback) {
           clearStoredUserEmail();
           setAuthEmail(null);
+          setCanSend(false);
         }
 
         const activeEmail = status.email ?? emailFromCallback;
@@ -109,6 +199,7 @@ function App() {
           await seedInbox(getDemoSeedCount(demoFocusMode), { trimToCount: true });
         }
         await loadBucket("now");
+        await loadUserModel(true);
       } catch (e) {
         setError((e as Error).message);
       } finally {
@@ -131,8 +222,13 @@ function App() {
     clearStoredUserEmail();
     setAuthEmail(null);
     setAuthConnected(false);
+    setCanSend(false);
+    setComposerOpen(false);
+    setDraft(createEmptyDraft());
+    setSendStatus("");
     try {
       await syncDemoInbox("now");
+      await loadUserModel(true);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -145,6 +241,7 @@ function App() {
 
     try {
       await syncDemoInbox("now", enabled);
+      await loadUserModel(true);
     } catch (e) {
       setDemoFocusMode(previous);
       setStoredDemoFocusMode(previous);
@@ -161,13 +258,41 @@ function App() {
       try {
         const detail = await getEmail(selectedId, mode);
         setSelected(detail);
-        await trackEvent(selectedId, "open");
       } catch (e) {
         setError((e as Error).message);
       }
     };
     void loadDetail();
   }, [selectedId, mode]);
+
+  useEffect(() => {
+    const previousId = lastSelectedIdRef.current;
+    const previousStarted = selectedStartRef.current;
+    if (previousId != null && previousStarted != null && previousId !== selectedId) {
+      const dwellMs = Date.now() - previousStarted;
+      if (dwellMs < 6000) {
+        void trackEvent(previousId, "quick_close", dwellMs).then(() => {
+          if (modelOpen) {
+            void loadUserModel(true);
+          }
+        });
+      }
+    }
+
+    if (selectedId == null) {
+      lastSelectedIdRef.current = null;
+      selectedStartRef.current = null;
+      return;
+    }
+
+    lastSelectedIdRef.current = selectedId;
+    selectedStartRef.current = Date.now();
+    void trackEvent(selectedId, "open").then(() => {
+      if (modelOpen) {
+        void loadUserModel(true);
+      }
+    });
+  }, [selectedId]);
 
   async function onBucketChange(next: Bucket) {
     setBucket(next);
@@ -186,8 +311,102 @@ function App() {
         setBucket(updated.bucket);
       }
       await loadBucket(updated.bucket, updated.id);
+      await loadUserModel(true);
     } catch (e) {
       setError((e as Error).message);
+    }
+  }
+
+  function onComposeNew() {
+    setComposerOpen(true);
+    setSendStatus("");
+    setDraft(createEmptyDraft());
+  }
+
+  function onReply() {
+    if (!activeEmail) {
+      return;
+    }
+    setComposerOpen(true);
+    setSendStatus("");
+    setDraft({
+      to: activeEmail.sender,
+      cc: "",
+      subject: buildReplySubject(activeEmail.subject),
+      body: buildReplyBody(activeEmail),
+      replyToEmailId: activeEmail.id
+    });
+  }
+
+  function onComposeFieldChange(field: "to" | "cc" | "subject" | "body", value: string) {
+    setDraft((current) => ({
+      ...current,
+      [field]: value
+    }));
+  }
+
+  function onCloseComposer() {
+    setComposerOpen(false);
+    setDraft(createEmptyDraft());
+  }
+
+  async function onSendEmail() {
+    setSendingEmail(true);
+    setError("");
+    setSendStatus("");
+    try {
+      await sendEmail({
+        to: draft.to,
+        cc: draft.cc,
+        subject: draft.subject,
+        body: draft.body,
+        reply_to_email_id: draft.replyToEmailId
+      });
+      if (draft.replyToEmailId != null) {
+        await trackEvent(draft.replyToEmailId, "reply");
+      }
+      setComposerOpen(false);
+      setDraft(createEmptyDraft());
+      setSendStatus("Email sent.");
+      await loadUserModel(true);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSendingEmail(false);
+    }
+  }
+
+  async function onSaveModel() {
+    setModelSaving(true);
+    setError("");
+    try {
+      const featureWeights = Object.fromEntries(
+        Object.entries(weightDraft)
+          .map(([key, value]) => [key, Number.parseFloat(value)])
+          .filter(([, value]) => Number.isFinite(value))
+      );
+      const updated = await updateUserModel({
+        important_senders: parseSenderList(importantDraft),
+        muted_senders: parseSenderList(mutedDraft),
+        feature_weights: featureWeights
+      });
+      setUserModel(updated);
+      applyModelDrafts(updated);
+      await loadBucket(bucket, selectedId);
+      if (selectedId != null) {
+        const detail = await getEmail(selectedId, mode);
+        setSelected(detail);
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setModelSaving(false);
+    }
+  }
+
+  function onResetModelDrafts() {
+    if (userModel) {
+      applyModelDrafts(userModel);
     }
   }
 
@@ -197,12 +416,38 @@ function App() {
         <h1>Smart Inbox</h1>
         <p>Priority-focused inbox with Busy and Normal reading modes.</p>
         <div className="auth-bar">
-          <span>{authEmail ? `Signed in: ${authEmail}` : "Using demo account"}</span>
+          <span>
+            {authEmail
+              ? `Signed in: ${authEmail}${canSend ? "" : " (read-only token)"}`
+              : "Using demo account"}
+          </span>
           {!authConnected ? (
             <button className="feedback-btn" onClick={() => void onConnectGoogle()}>
               Connect Gmail
             </button>
           ) : null}
+          {authConnected && !canSend ? (
+            <button className="feedback-btn" onClick={() => void onConnectGoogle()}>
+              Reconnect Gmail for Send
+            </button>
+          ) : null}
+          {authConnected ? (
+            <button className="feedback-btn" onClick={onComposeNew}>
+              Compose
+            </button>
+          ) : null}
+          <button
+            className={`feedback-btn ${modelOpen ? "toggle-active" : ""}`}
+            onClick={() => {
+              const next = !modelOpen;
+              setModelOpen(next);
+              if (next) {
+                void loadUserModel();
+              }
+            }}
+          >
+            User Model
+          </button>
           {authEmail ? (
             <button className="feedback-btn" onClick={() => void onUseDemo()}>
               Switch to Demo
@@ -242,12 +487,53 @@ function App() {
             />
           )}
         </aside>
-        <EmailDetail
-          email={selected ?? selectedFromList}
-          mode={mode}
-          onModeChange={setMode}
-          onFeedback={(action) => void onFeedback(action)}
-        />
+        <div className="detail-stack">
+          <EmailDetail
+            email={activeEmail}
+            mode={mode}
+            canReply={authConnected && canSend}
+            onModeChange={setMode}
+            onFeedback={(action) => void onFeedback(action)}
+            onReply={onReply}
+          />
+          <ModelInspector
+            isOpen={modelOpen}
+            loading={modelLoading}
+            saving={modelSaving}
+            model={userModel}
+            importantDraft={importantDraft}
+            mutedDraft={mutedDraft}
+            weightDraft={weightDraft}
+            onImportantChange={setImportantDraft}
+            onMutedChange={setMutedDraft}
+            onWeightChange={(key, value) =>
+              setWeightDraft((current) => ({
+                ...current,
+                [key]: value
+              }))
+            }
+            onSave={() => void onSaveModel()}
+            onReset={onResetModelDrafts}
+          />
+          <ComposePanel
+            isOpen={composerOpen}
+            connected={authConnected}
+            canSend={canSend}
+            sending={sendingEmail}
+            statusMessage={sendStatus}
+            selectedEmail={activeEmail}
+            to={draft.to}
+            cc={draft.cc}
+            subject={draft.subject}
+            body={draft.body}
+            onOpenNew={onComposeNew}
+            onOpenReply={onReply}
+            onClose={onCloseComposer}
+            onReconnect={() => void onConnectGoogle()}
+            onFieldChange={onComposeFieldChange}
+            onSend={() => void onSendEmail()}
+          />
+        </div>
       </section>
     </main>
   );

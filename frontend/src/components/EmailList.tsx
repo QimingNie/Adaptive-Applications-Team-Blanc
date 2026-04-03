@@ -28,6 +28,7 @@ export function EmailList({ items, selectedId, onSelect }: Props) {
             <span>Score {item.score.toFixed(2)}</span>
           </div>
           <p className="snippet">{item.snippet}</p>
+          {item.reason_summary ? <p className="reason-chip">{item.reason_summary}</p> : null}
         </li>
       ))}
     </ul>

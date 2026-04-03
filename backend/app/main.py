@@ -11,11 +11,16 @@ Base.metadata.create_all(bind=engine)
 def ensure_legacy_columns():
     with engine.begin() as conn:
         inspector = inspect(conn)
-        if "users" not in inspector.get_table_names():
+        tables = set(inspector.get_table_names())
+        if "users" not in tables:
             return
-        columns = {col["name"] for col in inspector.get_columns("users")}
-        if "gmail_history_id" not in columns:
+        user_columns = {col["name"] for col in inspector.get_columns("users")}
+        if "gmail_history_id" not in user_columns:
             conn.execute(text("ALTER TABLE users ADD COLUMN gmail_history_id VARCHAR(255)"))
+        if "user_preferences" in tables:
+            pref_columns = {col["name"] for col in inspector.get_columns("user_preferences")}
+            if "feature_weights_json" not in pref_columns:
+                conn.execute(text("ALTER TABLE user_preferences ADD COLUMN feature_weights_json TEXT DEFAULT ''"))
 
 
 ensure_legacy_columns()

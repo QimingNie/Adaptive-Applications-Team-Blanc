@@ -9,6 +9,7 @@ export type ModelSource = "baseline" | "explicit" | "implicit" | "content" | "co
 
 export interface EmailItem {
   id: number;
+  thread_id?: string;
   sender: string;
   subject: string;
   snippet: string;
@@ -24,6 +25,20 @@ export interface EmailItem {
   reason_summary?: string;
   model_summary?: string;
   score_breakdown?: ScoreBreakdownItem[];
+}
+
+export interface ThreadMessageItem {
+  id: number;
+  sender: string;
+  subject: string;
+  snippet: string;
+  received_at: string;
+}
+
+export interface ThreadContextResponse {
+  thread_id: string;
+  current_email_id: number;
+  messages: ThreadMessageItem[];
 }
 
 export interface InboxResponse {

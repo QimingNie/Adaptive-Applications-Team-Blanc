@@ -1,15 +1,18 @@
 import type {
   Bucket,
+  EmailItem,
   FeedbackType,
   InboxResponse,
   SendEmailInput,
+  ThreadContextResponse,
   UserModel,
   UserModelUpdateInput,
-  ViewMode,
-  EmailItem
+  ViewMode
 } from "./types";
 
-const API_BASE = "http://127.0.0.1:8000/api";
+const API_BASE =
+  (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
+  "http://127.0.0.1:8010/api";
 const USER_EMAIL_KEY = "smart_inbox_user_email";
 
 interface SeedInboxOptions {
@@ -90,6 +93,14 @@ export async function getInbox(bucket: Bucket): Promise<InboxResponse> {
 export async function getEmail(emailId: number, mode: ViewMode): Promise<EmailItem> {
   return parse<EmailItem>(
     await fetch(`${API_BASE}/emails/${emailId}?mode=${mode}`, {
+      headers: getHeaders()
+    })
+  );
+}
+
+export async function getEmailThread(emailId: number): Promise<ThreadContextResponse> {
+  return parse<ThreadContextResponse>(
+    await fetch(`${API_BASE}/emails/${emailId}/thread`, {
       headers: getHeaders()
     })
   );

@@ -7,7 +7,23 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $backendDir = Join-Path $root "backend"
 $frontendDir = Join-Path $root "frontend"
-$venvDir = Join-Path $backendDir ".venv"
+
+function Resolve-BackendVenvDir {
+    param([string]$BackendDir)
+    $ordered = @(
+        (Join-Path $BackendDir "venv"),
+        (Join-Path $BackendDir ".venv")
+    )
+    foreach ($dir in $ordered) {
+        $py = Join-Path $dir "Scripts\python.exe"
+        if (Test-Path $py) {
+            return $dir
+        }
+    }
+    return (Join-Path $BackendDir ".venv")
+}
+
+$venvDir = Resolve-BackendVenvDir -BackendDir $backendDir
 $venvPython = Join-Path $venvDir "Scripts\python.exe"
 $venvActivate = Join-Path $venvDir "Scripts\Activate.ps1"
 
@@ -60,7 +76,7 @@ if (-not (Test-VenvHasPip -PythonPath $venvPython)) {
 }
 
 if (-not (Test-VenvHasPip -PythonPath $venvPython)) {
-    throw "Backend virtual environment is missing pip. Delete backend\.venv and rerun .\start.ps1."
+    throw "Backend virtual environment is missing pip. Remove backend\venv or backend\.venv and rerun .\start.ps1."
 }
 
 if (-not $SkipInstall) {
@@ -79,7 +95,7 @@ if (-not $SkipInstall) {
 
 $backendCmd = @"
 cd '$backendDir'
-& '$venvPython' -m uvicorn app.main:app --reload --port 8000
+& '$venvPython' -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8010
 "@
 
 $frontendCmd = @"
@@ -94,7 +110,7 @@ Write-Host "Starting frontend window..."
 Start-Process powershell -ArgumentList "-NoProfile", "-NoExit", "-Command", $frontendCmd | Out-Null
 
 Write-Host "Started:"
-Write-Host " - Backend: http://127.0.0.1:8000"
+Write-Host " - Backend: http://127.0.0.1:8010"
 Write-Host " - Frontend: http://127.0.0.1:5173"
 Write-Host ""
 Write-Host "Tip: if dependencies are already installed, use .\start.ps1 -SkipInstall for faster startup."

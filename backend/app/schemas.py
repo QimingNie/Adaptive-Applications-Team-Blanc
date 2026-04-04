@@ -12,6 +12,7 @@ class EmailBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    thread_id: str = ""
     sender: str
     subject: str
     snippet: str
@@ -41,6 +42,22 @@ class EmailDetail(EmailBase):
     reason_summary: str = ""
     model_summary: str = ""
     score_breakdown: list["ScoreBreakdownItem"] = Field(default_factory=list)
+
+
+class ThreadMessageItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    sender: str
+    subject: str
+    snippet: str
+    received_at: datetime
+
+
+class ThreadContextResponse(BaseModel):
+    thread_id: str
+    current_email_id: int
+    messages: list[ThreadMessageItem]
 
 
 class InboxResponse(BaseModel):

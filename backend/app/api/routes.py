@@ -25,6 +25,8 @@ from app.schemas import (
     SyncRequest,
     UserModelResponse,
     UserModelUpdateRequest,
+    ThreadContextResponse,
+    ThreadMessageItem,
     ViewMode,
 )
 from app.services.gmail_send import send_gmail_message
@@ -203,6 +205,7 @@ def get_inbox(
         response_items.append(
             EmailListItem(
                 id=email.id,
+                thread_id=email.thread_id,
                 sender=email.sender,
                 subject=email.subject,
                 snippet=email.snippet,
@@ -254,6 +257,7 @@ def get_email(
     )
     return EmailDetail(
         id=email.id,
+        thread_id=email.thread_id,
         sender=email.sender,
         subject=email.subject,
         snippet=email.snippet,
@@ -319,6 +323,39 @@ def send_email(
     )
 
     return MessageResponse(message="Email sent.")
+
+
+@router.get("/emails/{email_id}/thread", response_model=ThreadContextResponse)
+def get_email_thread(
+    email_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    email = db.query(Email).filter(Email.id == email_id, Email.user_id == user.id).first()
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+
+    rows = (
+        db.query(Email)
+        .filter(Email.user_id == user.id, Email.thread_id == email.thread_id)
+        .order_by(Email.received_at.asc())
+        .all()
+    )
+    messages = [
+        ThreadMessageItem(
+            id=row.id,
+            sender=row.sender,
+            subject=row.subject,
+            snippet=row.snippet,
+            received_at=row.received_at,
+        )
+        for row in rows
+    ]
+    return ThreadContextResponse(
+        thread_id=email.thread_id,
+        current_email_id=email.id,
+        messages=messages,
+    )
 
 
 @router.post("/emails/{email_id}/feedback", response_model=MessageResponse)

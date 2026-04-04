@@ -80,7 +80,7 @@ function App() {
   const [items, setItems] = useState<EmailItem[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selected, setSelected] = useState<EmailItem | null>(null);
-  const [mode, setMode] = useState<ViewMode>("busy");
+  const [mode, setMode] = useState<ViewMode>("normal");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>("");
   const [authEmail, setAuthEmail] = useState<string | null>(getStoredUserEmail());
@@ -412,47 +412,86 @@ function App() {
 
   return (
     <main className="app">
+      <div className="app-backdrop" aria-hidden="true" />
       <header className="header">
-        <h1>Smart Inbox</h1>
-        <p>Priority-focused inbox with Busy and Normal reading modes.</p>
-        <div className="auth-bar">
-          <span>
-            {authEmail
-              ? `Signed in: ${authEmail}${canSend ? "" : " (read-only token)"}`
-              : "Using demo account"}
-          </span>
-          {!authConnected ? (
-            <button className="feedback-btn" onClick={() => void onConnectGoogle()}>
-              Connect Gmail
-            </button>
-          ) : null}
-          {authConnected && !canSend ? (
-            <button className="feedback-btn" onClick={() => void onConnectGoogle()}>
-              Reconnect Gmail for Send
-            </button>
-          ) : null}
-          {authConnected ? (
-            <button className="feedback-btn" onClick={onComposeNew}>
-              Compose
-            </button>
-          ) : null}
-          <button
-            className={`feedback-btn ${modelOpen ? "toggle-active" : ""}`}
-            onClick={() => {
-              const next = !modelOpen;
-              setModelOpen(next);
-              if (next) {
-                void loadUserModel();
-              }
-            }}
-          >
-            User Model
-          </button>
-          {authEmail ? (
-            <button className="feedback-btn" onClick={() => void onUseDemo()}>
-              Switch to Demo
-            </button>
-          ) : null}
+        <div className="header-main">
+          <div className="brand">
+            <div className="brand-mark" aria-hidden="true" />
+            <div className="brand-text">
+              <p className="brand-eyebrow">Adaptive application</p>
+              <h1 className="brand-title">Smart Inbox</h1>
+              <p className="brand-tagline">
+                Priority zones and reading modes that adjust to how you work — not the other way around.
+              </p>
+            </div>
+          </div>
+          <div className="auth-card">
+            <div className="auth-status">
+              <span
+                className={`auth-dot ${authEmail && authConnected ? "auth-dot--live" : ""}`}
+                aria-hidden
+              />
+              <span className="auth-label">
+                {authEmail ? (
+                  <>
+                    <span className="auth-strong">
+                      {authConnected
+                        ? canSend
+                          ? "Gmail connected"
+                          : "Gmail (read-only)"
+                        : "Signed in"}
+                    </span>
+                    <span className="auth-email">
+                      {authEmail}
+                      {authConnected && !canSend
+                        ? " — reconnect and approve send access to compose."
+                        : ""}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="auth-strong">Demo mode</span>
+                    <span className="auth-email">Sample inbox — connect Gmail when you are ready</span>
+                  </>
+                )}
+              </span>
+            </div>
+            <div className="auth-actions">
+              {!authConnected ? (
+                <button type="button" className="btn btn-primary" onClick={() => void onConnectGoogle()}>
+                  Connect Gmail
+                </button>
+              ) : null}
+              {authConnected && !canSend ? (
+                <button type="button" className="btn btn-ghost" onClick={() => void onConnectGoogle()}>
+                  Reconnect for send
+                </button>
+              ) : null}
+              {authConnected ? (
+                <button type="button" className="btn btn-ghost" onClick={onComposeNew}>
+                  Compose
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={`btn btn-ghost ${modelOpen ? "toggle-active" : ""}`}
+                onClick={() => {
+                  const next = !modelOpen;
+                  setModelOpen(next);
+                  if (next) {
+                    void loadUserModel();
+                  }
+                }}
+              >
+                User model
+              </button>
+              {authEmail ? (
+                <button type="button" className="btn btn-ghost" onClick={() => void onUseDemo()}>
+                  Use demo
+                </button>
+              ) : null}
+            </div>
+          </div>
         </div>
         {!authEmail ? (
           <div className="demo-controls">
@@ -474,18 +513,28 @@ function App() {
         ) : null}
       </header>
       <BucketTabs value={bucket} onChange={(b) => void onBucketChange(b)} />
-      {error ? <div className="error">{error}</div> : null}
-      <section className="layout">
-        <aside className="list-panel">
-          {loading ? (
-            <div className="empty">Loading...</div>
-          ) : (
-            <EmailList
-              items={items}
-              selectedId={selectedId}
-              onSelect={(id) => setSelectedId(id)}
-            />
-          )}
+      {error ? <div className="error" role="alert">{error}</div> : null}
+      <section className="layout" aria-label="Inbox layout">
+        <aside className="list-panel" id="panel-inbox" role="tabpanel" aria-label="Message list">
+          <div className="list-panel__head">
+            <h2 className="list-panel__title">In this zone</h2>
+            <span className="list-panel__count">{loading ? "…" : items.length}</span>
+          </div>
+          <div className="list-panel__body">
+            {loading ? (
+              <div className="skeleton-list" aria-busy="true" aria-label="Loading messages">
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <div key={i} className="skeleton-row" />
+                ))}
+              </div>
+            ) : (
+              <EmailList
+                items={items}
+                selectedId={selectedId}
+                onSelect={(id) => setSelectedId(id)}
+              />
+            )}
+          </div>
         </aside>
         <div className="detail-stack">
           <EmailDetail
@@ -495,6 +544,7 @@ function App() {
             onModeChange={setMode}
             onFeedback={(action) => void onFeedback(action)}
             onReply={onReply}
+            onOpenThreadMessage={(id) => setSelectedId(id)}
           />
           <ModelInspector
             isOpen={modelOpen}

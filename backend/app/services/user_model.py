@@ -3,6 +3,7 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -362,7 +363,12 @@ def ensure_profiles_backfilled(db: Session, user: User) -> None:
         db.add(row)
     for row in thread_rows.values():
         db.add(row)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        # Another request may have backfilled profiles concurrently.
+        # Roll back this partial insert attempt and proceed with existing rows.
+        db.rollback()
 
 
 def feature_weight_items(preference: Optional[UserPreference]) -> list[dict[str, object]]:

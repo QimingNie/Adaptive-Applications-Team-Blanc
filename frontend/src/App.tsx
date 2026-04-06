@@ -7,6 +7,7 @@ import {
   getInbox,
   getStoredUserEmail,
   getUserModel,
+  GMAIL_SYNC_TIMEOUT_MS,
   seedInbox,
   sendEmail,
   sendFeedback,
@@ -25,6 +26,8 @@ import "./styles.css";
 const DEMO_FOCUS_MODE_KEY = "smart_inbox_demo_focus_mode";
 const DEMO_FOCUS_COUNT = 6;
 const DEMO_DEFAULT_COUNT = 32;
+/** Gmail message fetches per sync (keep modest so the request returns before the client timeout). */
+const GMAIL_SYNC_BATCH = 24;
 
 interface ComposeDraft {
   to: string;
@@ -75,6 +78,13 @@ function setStoredDemoFocusMode(enabled: boolean) {
   localStorage.setItem(DEMO_FOCUS_MODE_KEY, enabled ? "true" : "false");
 }
 
+function isAbortError(e: unknown): boolean {
+  return (
+    (typeof DOMException !== "undefined" && e instanceof DOMException && e.name === "AbortError") ||
+    (e instanceof Error && e.name === "AbortError")
+  );
+}
+
 function App() {
   const [bucket, setBucket] = useState<Bucket>("now");
   const [items, setItems] = useState<EmailItem[]>([]);
@@ -82,6 +92,7 @@ function App() {
   const [selected, setSelected] = useState<EmailItem | null>(null);
   const [mode, setMode] = useState<ViewMode>("normal");
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string>("");
   const [authEmail, setAuthEmail] = useState<string | null>(getStoredUserEmail());
   const [authConnected, setAuthConnected] = useState(false);
@@ -99,8 +110,18 @@ function App() {
   const [mutedDraft, setMutedDraft] = useState("");
   const [weightDraft, setWeightDraft] = useState<Record<string, string>>({});
   const bootedRef = useRef(false);
+  const bootCompleteRef = useRef(false);
   const selectedStartRef = useRef<number | null>(null);
   const lastSelectedIdRef = useRef<number | null>(null);
+  const inboxFetchAbortRef = useRef<AbortController | null>(null);
+  /** Only the latest inbox fetch may update list state (avoids stale empty responses after sync). */
+  const inboxFetchGenerationRef = useRef(0);
+  const modeRef = useRef(mode);
+  const bucketRef = useRef(bucket);
+  const selectedIdRef = useRef(selectedId);
+  modeRef.current = mode;
+  bucketRef.current = bucket;
+  selectedIdRef.current = selectedId;
 
   const selectedFromList = useMemo(
     () => items.find((item) => item.id === selectedId) || null,
@@ -135,11 +156,26 @@ function App() {
     }
   }
 
-  async function loadBucket(target: Bucket, preferredId: number | null = null) {
-    setLoading(true);
+  async function loadBucket(
+    target: Bucket,
+    preferredId: number | null = null,
+    opts?: { showLoading?: boolean; listView?: ViewMode }
+  ) {
+    const showLoading = opts?.showLoading !== false;
+    const listView = opts?.listView ?? modeRef.current;
+    const generation = ++inboxFetchGenerationRef.current;
+    inboxFetchAbortRef.current?.abort();
+    const ac = new AbortController();
+    inboxFetchAbortRef.current = ac;
+    if (showLoading) {
+      setLoading(true);
+    }
     setError("");
     try {
-      const inbox = await getInbox(target);
+      const inbox = await getInbox(target, listView, { signal: ac.signal });
+      if (generation !== inboxFetchGenerationRef.current) {
+        return;
+      }
       setItems(inbox.items);
       const nextSelectedId =
         preferredId != null && inbox.items.some((item) => item.id === preferredId)
@@ -147,9 +183,14 @@ function App() {
           : (inbox.items[0]?.id ?? null);
       setSelectedId(nextSelectedId);
     } catch (e) {
+      if (isAbortError(e)) {
+        return;
+      }
       setError((e as Error).message);
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }
 
@@ -173,10 +214,10 @@ function App() {
       setLoading(true);
       try {
         const url = new URL(window.location.href);
-        const emailFromCallback = url.searchParams.get("email");
-        if (emailFromCallback) {
-          setStoredUserEmail(emailFromCallback);
-          setAuthEmail(emailFromCallback);
+        const emailFromOAuth = url.searchParams.get("email");
+
+        if (emailFromOAuth) {
+          setStoredUserEmail(emailFromOAuth);
           const cleanUrl = `${url.origin}/`;
           window.history.replaceState({}, "", cleanUrl);
         }
@@ -184,30 +225,67 @@ function App() {
         const status = await getAuthStatus();
         setAuthConnected(status.connected);
         setCanSend(status.can_send);
-        if (status.email) {
-          setAuthEmail(status.email);
-        } else if (!emailFromCallback) {
+
+        const norm = (e: string | null | undefined) => (e && e.trim().toLowerCase()) || "";
+        // status.email ?? OAuth query ?? localStorage — only clear storage if all three are empty
+        const resolvedEmail =
+          norm(status.email) || norm(emailFromOAuth) || norm(getStoredUserEmail()) || null;
+
+        if (resolvedEmail) {
+          setAuthEmail(resolvedEmail);
+          setStoredUserEmail(resolvedEmail);
+        } else {
           clearStoredUserEmail();
           setAuthEmail(null);
-          setCanSend(false);
         }
 
-        const activeEmail = status.email ?? emailFromCallback;
-        if (activeEmail) {
-          await seedInbox(DEMO_DEFAULT_COUNT);
-        } else {
-          await seedInbox(getDemoSeedCount(demoFocusMode), { trimToCount: true });
-        }
-        await loadBucket("now");
-        await loadUserModel(true);
+        const activeEmail = resolvedEmail;
+
+        await loadBucket("now", null, { showLoading: false });
+
+        void loadUserModel(true);
+
+        void (async () => {
+          setSyncing(true);
+          try {
+            if (activeEmail) {
+              await seedInbox(GMAIL_SYNC_BATCH, {
+                trimToCount: false,
+                syncTimeoutMs: GMAIL_SYNC_TIMEOUT_MS
+              });
+            } else {
+              await seedInbox(getDemoSeedCount(demoFocusMode), { trimToCount: true });
+            }
+          } catch (e) {
+            setError((e as Error).message);
+          } finally {
+            try {
+              await loadBucket(bucketRef.current, selectedIdRef.current, { showLoading: false });
+            } catch (loadErr) {
+              if (!isAbortError(loadErr)) {
+                setError((loadErr as Error).message);
+              }
+            }
+            setSyncing(false);
+          }
+        })();
       } catch (e) {
         setError((e as Error).message);
       } finally {
         setLoading(false);
+        bootCompleteRef.current = true;
       }
     };
     void boot();
   }, []);
+
+  useEffect(() => {
+    if (!bootCompleteRef.current) {
+      return;
+    }
+    void loadBucket(bucket, selectedId, { showLoading: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload list when reading mode changes; bucket/selection handled elsewhere
+  }, [mode]);
 
   async function onConnectGoogle() {
     try {
@@ -231,6 +309,43 @@ function App() {
       await loadUserModel(true);
     } catch (e) {
       setError((e as Error).message);
+    }
+  }
+
+  async function onRefreshDemoInbox() {
+    setSyncing(true);
+    setError("");
+    try {
+      await seedInbox(getDemoSeedCount(demoFocusMode), { trimToCount: true });
+      await loadBucket(bucket, selectedId, { showLoading: false });
+      await loadUserModel(true);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function onSyncInbox() {
+    setSyncing(true);
+    setError("");
+    try {
+      await seedInbox(GMAIL_SYNC_BATCH, {
+        trimToCount: false,
+        syncTimeoutMs: GMAIL_SYNC_TIMEOUT_MS
+      });
+      await loadUserModel(true);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      try {
+        await loadBucket(bucketRef.current, selectedIdRef.current, { showLoading: false });
+      } catch (loadErr) {
+        if (!isAbortError(loadErr)) {
+          setError((loadErr as Error).message);
+        }
+      }
+      setSyncing(false);
     }
   }
 
@@ -456,41 +571,100 @@ function App() {
                 )}
               </span>
             </div>
-            <div className="auth-actions">
-              {!authConnected ? (
-                <button type="button" className="btn btn-primary" onClick={() => void onConnectGoogle()}>
-                  Connect Gmail
+            <div className="auth-mode-toggle" role="group" aria-label="Inbox view mode">
+              <button
+                type="button"
+                className={mode === "normal" ? "auth-mode-btn auth-mode-btn--active" : "auth-mode-btn"}
+                onClick={() => setMode("normal")}
+              >
+                Normal
+              </button>
+              <button
+                type="button"
+                className={mode === "busy" ? "auth-mode-btn auth-mode-btn--active" : "auth-mode-btn"}
+                onClick={() => setMode("busy")}
+              >
+                Busy
+              </button>
+            </div>
+            <div className="auth-actions" role="toolbar" aria-label="Account actions">
+              {authEmail && !authConnected ? (
+                <button type="button" className="btn btn-primary auth-actions__full" onClick={() => void onConnectGoogle()}>
+                  Reconnect Gmail
                 </button>
               ) : null}
               {authConnected && !canSend ? (
-                <button type="button" className="btn btn-ghost" onClick={() => void onConnectGoogle()}>
+                <button type="button" className="btn btn-ghost auth-actions__full" onClick={() => void onConnectGoogle()}>
                   Reconnect for send
                 </button>
               ) : null}
-              {authConnected ? (
-                <button type="button" className="btn btn-ghost" onClick={onComposeNew}>
-                  Compose
+              <div className="auth-row3">
+                {authConnected ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost auth-row3__btn"
+                    title="Sync inbox from Gmail"
+                    onClick={() => void onSyncInbox()}
+                    disabled={syncing}
+                  >
+                    {syncing ? "…" : "Sync"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-ghost auth-row3__btn"
+                    title="Reload sample emails"
+                    onClick={() => void onRefreshDemoInbox()}
+                    disabled={syncing}
+                  >
+                    {syncing ? "…" : "Refresh"}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={`btn btn-ghost auth-row3__btn ${modelOpen ? "toggle-active" : ""}`}
+                  title="User model inspector"
+                  onClick={() => {
+                    const next = !modelOpen;
+                    setModelOpen(next);
+                    if (next) {
+                      void loadUserModel();
+                    }
+                  }}
+                >
+                  Model
                 </button>
-              ) : null}
-              <button
-                type="button"
-                className={`btn btn-ghost ${modelOpen ? "toggle-active" : ""}`}
-                onClick={() => {
-                  const next = !modelOpen;
-                  setModelOpen(next);
-                  if (next) {
-                    void loadUserModel();
-                  }
-                }}
-              >
-                User model
-              </button>
-              {authEmail ? (
-                <button type="button" className="btn btn-ghost" onClick={() => void onUseDemo()}>
-                  Use demo
-                </button>
-              ) : null}
+                {authEmail && authConnected ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost auth-row3__btn"
+                    title="Switch to sample inbox"
+                    onClick={() => void onUseDemo()}
+                  >
+                    Demo
+                  </button>
+                ) : authEmail && !authConnected ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost auth-row3__btn"
+                    title="Use sample inbox (sign out Gmail)"
+                    onClick={() => void onUseDemo()}
+                  >
+                    Demo
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-primary auth-row3__btn auth-row3__btn--primary"
+                    title="Connect Google account"
+                    onClick={() => void onConnectGoogle()}
+                  >
+                    Gmail
+                  </button>
+                )}
+              </div>
             </div>
+            {syncing ? <p className="auth-sync-hint" aria-live="polite">Updating inbox…</p> : null}
           </div>
         </div>
         {!authEmail ? (
@@ -512,14 +686,22 @@ function App() {
           </div>
         ) : null}
       </header>
-      <BucketTabs value={bucket} onChange={(b) => void onBucketChange(b)} />
+      {mode === "busy" ? <BucketTabs value={bucket} onChange={(b) => void onBucketChange(b)} /> : null}
       {error ? <div className="error" role="alert">{error}</div> : null}
       <section className="layout" aria-label="Inbox layout">
-        <aside className="list-panel" id="panel-inbox" role="tabpanel" aria-label="Message list">
+        <aside
+          className="list-panel"
+          id="panel-inbox"
+          role={mode === "busy" ? "tabpanel" : "region"}
+          aria-label={mode === "busy" ? "Messages in selected zone" : "All messages"}
+        >
           <div className="list-panel__head">
-            <h2 className="list-panel__title">In this zone</h2>
-            <span className="list-panel__count">{loading ? "…" : items.length}</span>
+            <h2 className="list-panel__title">
+              {mode === "normal" ? "All messages" : "In this zone"}
+            </h2>
+            <span className="list-panel__count">{loading || syncing ? "…" : items.length}</span>
           </div>
+          {mode === "normal" ? <p className="list-panel__hint">Newest first — full messages on the right.</p> : null}
           <div className="list-panel__body">
             {loading ? (
               <div className="skeleton-list" aria-busy="true" aria-label="Loading messages">
@@ -532,6 +714,7 @@ function App() {
                 items={items}
                 selectedId={selectedId}
                 onSelect={(id) => setSelectedId(id)}
+                showAdaptiveMeta={mode === "busy"}
               />
             )}
           </div>
@@ -541,7 +724,6 @@ function App() {
             email={activeEmail}
             mode={mode}
             canReply={authConnected && canSend}
-            onModeChange={setMode}
             onFeedback={(action) => void onFeedback(action)}
             onReply={onReply}
             onOpenThreadMessage={(id) => setSelectedId(id)}

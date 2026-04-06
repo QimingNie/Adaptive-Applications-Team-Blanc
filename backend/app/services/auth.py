@@ -51,7 +51,8 @@ def build_google_auth_url(state: str) -> str:
         "scope": " ".join(GOOGLE_SCOPES),
         "access_type": "offline",
         "include_granted_scopes": "true",
-        "prompt": "consent",
+        # Let returning users reuse their Google session; refresh tokens stay in DB and are rotated in code.
+        "prompt": "select_account",
         "state": state,
     }
     return f"{GOOGLE_AUTH_URL}?{urlencode(params)}"

@@ -139,19 +139,22 @@ body {
 
 .auth-card {
   flex-shrink: 0;
-  width: min(100%, 320px);
-  padding: 16px 18px;
+  width: min(100%, 318px);
+  padding: 14px 14px 16px;
   background: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 .auth-status {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: flex-start;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .auth-dot {
@@ -186,10 +189,111 @@ body {
   word-break: break-all;
 }
 
+.auth-mode-toggle {
+  display: flex;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 4px;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  gap: 4px;
+  box-sizing: border-box;
+}
+
+.auth-mode-btn {
+  flex: 1;
+  margin: 0;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.auth-mode-btn:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.auth-mode-btn--active {
+  color: var(--ink);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-sm);
+}
+
 .auth-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 8px;
+  width: 100%;
+}
+
+.auth-actions__full {
+  width: 100%;
+  margin: 0;
+  box-sizing: border-box;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-row3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  width: 100%;
+  align-items: stretch;
+}
+
+.auth-row3 .auth-row3__btn {
+  margin: 0;
+  min-height: 40px;
+  padding: 8px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  hyphens: auto;
+  overflow-wrap: anywhere;
+}
+
+.auth-row3 .auth-row3__btn--primary {
+  padding: 8px 6px;
+  font-size: 11px;
+  background: linear-gradient(135deg, #1d4ed8, #5b21b6);
+  color: #fff;
+  border: none;
+  box-shadow: 0 2px 10px -2px rgba(29, 78, 216, 0.45);
+}
+
+.auth-row3 .auth-row3__btn--primary:hover {
+  filter: brightness(1.06);
+  color: #fff;
+}
+
+.auth-row3__spacer {
+  display: block;
+  min-width: 0;
+}
+
+.auth-sync-hint {
+  margin: 10px 0 0;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-muted);
+  text-align: center;
 }
 
 .btn {
@@ -395,6 +499,16 @@ body {
   border-radius: 999px;
 }
 
+.list-panel__hint {
+  margin: 0;
+  padding: 8px 16px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-1);
+}
+
 .list-panel__body {
   flex: 1;
   min-height: 0;
@@ -545,6 +659,19 @@ body {
   color: var(--ink-soft);
   width: 2.25rem;
   text-align: right;
+}
+
+.email-zone-pill {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--ink-muted);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .snippet {
@@ -737,6 +864,160 @@ body {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+}
+
+/* Normal mode (minimal): full body + thread — no scoring panels */
+.normal-mode--minimal {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 4px 8px 20px;
+  margin: 0;
+  background: transparent;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.normal-minimal-meta {
+  margin: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.normal-minimal-meta__line {
+  margin: 0 0 6px;
+  font-size: 14px;
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.normal-minimal-meta__label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+  margin-right: 8px;
+}
+
+.normal-minimal-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.normal-minimal-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink-muted);
+}
+
+.normal-minimal-badge--muted {
+  background: transparent;
+}
+
+.normal-body.normal-body--minimal {
+  margin: 0;
+  flex: 1;
+  min-height: 200px;
+}
+
+.normal-mode--minimal .normal-body--reader {
+  color: var(--ink);
+  background: var(--surface-1);
+  border-color: var(--border);
+}
+
+.normal-thread-minimal {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.normal-thread-minimal__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.normal-thread-minimal__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+}
+
+.normal-thread-minimal__count {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.normal-thread-minimal__loading,
+.normal-thread-minimal__empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.normal-thread-minimal__error {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #f87171;
+}
+
+.normal-thread-minimal__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.normal-thread-minimal__item {
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  transition: background 0.15s ease;
+}
+
+.normal-thread-minimal__item:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.normal-thread-minimal__item--current {
+  border-color: rgba(59, 130, 246, 0.45);
+  background: rgba(59, 130, 246, 0.12);
+  cursor: default;
+}
+
+.normal-thread-minimal__subj {
+  display: block;
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.normal-thread-minimal__meta {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-muted);
 }
 
 /* ─── Normal mode only: dark scrutability UI (Busy-aligned breakdown; does not affect Busy mode) ─── */

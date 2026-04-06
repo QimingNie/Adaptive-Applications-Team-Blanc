@@ -1,0 +1,11 @@
+{
+  "name": "smart-inbox-workspace",
+  "private": true,
+  "description": "Run npm scripts from repo root; app code lives in frontend/ and backend/.",
+  "scripts": {
+    "typecheck": "npm run typecheck --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "dev": "npm run dev --prefix frontend",
+    "verify": "npm run typecheck && npm run build"
+  }
+}

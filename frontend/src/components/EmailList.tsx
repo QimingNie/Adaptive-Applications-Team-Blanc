@@ -4,18 +4,22 @@ interface Props {
   items: EmailItem[];
   selectedId: number | null;
   onSelect: (id: number) => void;
+  /** When false (Normal mode list), hide scores, zones, and action badges. */
+  showAdaptiveMeta?: boolean;
 }
 
 function scorePercent(score: number): number {
   return Math.min(100, Math.max(0, Math.round(score * 100)));
 }
 
-export function EmailList({ items, selectedId, onSelect }: Props) {
+export function EmailList({ items, selectedId, onSelect, showAdaptiveMeta = true }: Props) {
   if (!items.length) {
     return (
       <div className="empty empty--inbox">
         <p className="empty-title">Nothing here yet</p>
-        <p className="empty-hint">Try another zone or sync your inbox.</p>
+        <p className="empty-hint">
+          {showAdaptiveMeta ? "Try another zone or sync your inbox." : "Sync your inbox or switch to Busy mode for zone filters."}
+        </p>
       </div>
     );
   }
@@ -24,7 +28,7 @@ export function EmailList({ items, selectedId, onSelect }: Props) {
     <ul className="email-list" role="list">
       {items.map((item) => {
         const selected = selectedId === item.id;
-        const pct = scorePercent(item.score);
+        const pct = showAdaptiveMeta ? scorePercent(item.score) : 0;
         return (
           <li key={item.id} className="email-list__row">
             <button
@@ -35,21 +39,25 @@ export function EmailList({ items, selectedId, onSelect }: Props) {
             >
               <div className="email-title">
                 <span className="email-subject">{item.subject}</span>
-                {item.needs_action ? (
+                {showAdaptiveMeta && item.needs_action ? (
                   <span className="badge badge--action">Action</span>
                 ) : null}
               </div>
               <div className="email-meta">
                 <span className="email-sender">{item.sender}</span>
-                <span className="email-score-wrap" title="Adaptive priority score">
-                  <span className="email-score-bar" aria-hidden>
-                    <span className="email-score-fill" style={{ width: `${pct}%` }} />
+                {showAdaptiveMeta ? (
+                  <span className="email-score-wrap" title="Adaptive priority score">
+                    <span className="email-score-bar" aria-hidden>
+                      <span className="email-score-fill" style={{ width: `${pct}%` }} />
+                    </span>
+                    <span className="email-score-val">{pct}%</span>
                   </span>
-                  <span className="email-score-val">{pct}%</span>
-                </span>
+                ) : null}
               </div>
               <p className="snippet">{item.snippet}</p>
-              {item.reason_summary ? <p className="reason-chip">{item.reason_summary}</p> : null}
+              {showAdaptiveMeta && item.reason_summary ? (
+                <p className="reason-chip">{item.reason_summary}</p>
+              ) : null}
             </button>
           </li>
         );

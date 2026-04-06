@@ -40,6 +40,7 @@ from app.services.auth import (
     ensure_oauth_config,
     exchange_code_for_tokens,
     fetch_google_userinfo,
+    get_valid_access_token,
     has_gmail_send_scope,
     upsert_user_and_token,
     validate_state,
@@ -55,13 +56,26 @@ from app.services.user_model import (
 router = APIRouter()
 
 
+def _client_identity_email(
+    x_user_email: Optional[str], user_email_query: Optional[str]
+) -> Optional[str]:
+    """Prefer header; some environments drop custom headers on GET — query is a fallback."""
+    combined = (x_user_email or user_email_query or "").strip()
+    return combined.lower() if combined else None
+
+
 def get_current_user(
-    db: Session = Depends(get_db), x_user_email: Optional[str] = Header(default=None)
+    db: Session = Depends(get_db),
+    x_user_email: Optional[str] = Header(default=None),
+    user_email: Optional[str] = Query(
+        default=None,
+        description="Fallback for X-User-Email (e.g. when custom headers are stripped on GET).",
+    ),
 ):
-    if not x_user_email:
+    email = _client_identity_email(x_user_email, user_email)
+    if not email:
         return ensure_demo_user(db)
 
-    email = x_user_email.strip().lower()
     user = db.query(User).filter(User.email == email).first()
     if user:
         return user
@@ -139,18 +153,26 @@ def auth_complete(redirect: str = Query(...)):
 @router.get("/auth/status", response_model=AuthStatusResponse)
 def auth_status(
     x_user_email: Optional[str] = Header(default=None),
+    user_email: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    if not x_user_email:
+    ident = _client_identity_email(x_user_email, user_email)
+    if not ident:
         return AuthStatusResponse(connected=False, email=None, can_send=False)
-    user = db.query(User).filter(User.email == x_user_email.strip().lower()).first()
+    user = db.query(User).filter(User.email == ident).first()
     if not user:
         return AuthStatusResponse(connected=False, email=None, can_send=False)
     token = db.query(OAuthToken).filter(OAuthToken.user_id == user.id).first()
+    if not token:
+        return AuthStatusResponse(connected=False, email=user.email, can_send=False)
+    try:
+        get_valid_access_token(db, user)
+    except HTTPException:
+        return AuthStatusResponse(connected=False, email=user.email, can_send=False)
     return AuthStatusResponse(
-        connected=token is not None,
+        connected=True,
         email=user.email,
-        can_send=has_gmail_send_scope(token.scope) if token else False,
+        can_send=has_gmail_send_scope(token.scope),
     )
 
 
@@ -166,11 +188,12 @@ def auth_debug_config():
 @router.post("/sync/run", response_model=MessageResponse)
 def sync_run(
     payload: SyncRequest,
-    x_user_email: Optional[str] = Header(default=None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if x_user_email:
+    # Gmail when this user has OAuth tokens (identity from header and/or user_email query).
+    token = db.query(OAuthToken).filter(OAuthToken.user_id == user.id).first()
+    if token:
         created = sync_gmail_inbox(db, user, payload.seed_count)
         return MessageResponse(message=f"Synced {created} emails from Gmail.")
 
@@ -180,10 +203,57 @@ def sync_run(
 
 @router.get("/inbox", response_model=InboxResponse)
 def get_inbox(
-    bucket: str = Query("now"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    bucket: str = Query("now"),
+    view: str = Query(
+        "busy",
+        description="busy = filter by priority zone; normal = all messages (newest first), zones ignored",
+    ),
+    all_messages: bool = Query(
+        False,
+        description="Explicit Normal list: all messages by date (avoids empty UI if view is misread).",
+    ),
 ):
+    view_key = (view or "").strip().lower()
+    if view_key not in ("busy", "normal"):
+        raise HTTPException(status_code=400, detail="view must be 'busy' or 'normal'.")
+    allowed_buckets = {"now", "read", "skim", "later"}
+    if bucket not in allowed_buckets:
+        raise HTTPException(status_code=400, detail="Invalid bucket.")
+
+    # Normal: full list. Gmail mail often lands in "later"; Busy+now would return [] while sync says 24.
+    if all_messages or view_key == "normal":
+        items = (
+            db.query(Email)
+            .filter(Email.user_id == user.id)
+            .order_by(Email.received_at.desc())
+            .limit(200)
+            .all()
+        )
+        # Normal list is "read everything by date" — skip adaptive rescoring per row (was O(n)
+        # and could take minutes for large inboxes). Busy mode still computes live reasons.
+        return InboxResponse(
+            bucket=bucket,
+            items=[
+                EmailListItem(
+                    id=email.id,
+                    thread_id=email.thread_id or "",
+                    sender=email.sender,
+                    subject=email.subject,
+                    snippet=email.snippet,
+                    has_attachment=email.has_attachment,
+                    is_cc=email.is_cc,
+                    received_at=email.received_at,
+                    score=email.score,
+                    bucket=email.bucket,
+                    needs_action=email.needs_action,
+                    reason_summary="",
+                )
+                for email in items
+            ],
+        )
+
     preference = ensure_user_preference(db, user)
     items = (
         db.query(Email)
@@ -205,7 +275,7 @@ def get_inbox(
         response_items.append(
             EmailListItem(
                 id=email.id,
-                thread_id=email.thread_id,
+                thread_id=email.thread_id or "",
                 sender=email.sender,
                 subject=email.subject,
                 snippet=email.snippet,
@@ -287,15 +357,12 @@ def get_email(
 @router.post("/mail/send", response_model=MessageResponse)
 def send_email(
     payload: SendEmailRequest,
-    x_user_email: Optional[str] = Header(default=None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if not x_user_email:
-        raise HTTPException(status_code=401, detail="Connect Gmail to send messages.")
     token = db.query(OAuthToken).filter(OAuthToken.user_id == user.id).first()
     if not token:
-        raise HTTPException(status_code=401, detail="Gmail is not connected.")
+        raise HTTPException(status_code=401, detail="Connect Gmail to send messages.")
     if not has_gmail_send_scope(token.scope):
         raise HTTPException(
             status_code=403,

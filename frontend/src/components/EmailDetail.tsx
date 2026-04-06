@@ -6,7 +6,6 @@ interface Props {
   email: EmailItem | null;
   mode: ViewMode;
   canReply: boolean;
-  onModeChange: (mode: ViewMode) => void;
   onFeedback: (action: "important" | "not_important" | "mute_sender" | "remind_sender") => void;
   onReply: () => void;
   onOpenThreadMessage?: (emailId: number) => void;
@@ -16,7 +15,6 @@ export function EmailDetail({
   email,
   mode,
   canReply,
-  onModeChange,
   onFeedback,
   onReply,
   onOpenThreadMessage
@@ -27,8 +25,8 @@ export function EmailDetail({
         <div className="placeholder-illustration" aria-hidden="true" />
         <h2 className="placeholder-title">Choose a message</h2>
         <p className="placeholder-copy">
-          Pick an email from the list to read in Busy or Normal mode. The app learns from what you open
-          and how you rate messages.
+          Pick an email from the list. Use <strong>Normal</strong> / <strong>Busy</strong> in the account card
+          above to switch views. Compose from the panel at the bottom.
         </p>
       </section>
     );
@@ -43,36 +41,22 @@ export function EmailDetail({
       <div className="detail-header">
         <h2 className="detail-subject">{email.subject}</h2>
         <div className="detail-header-actions">
-          <div className="mode-toggle" role="group" aria-label="Reading mode">
-            <button
-              type="button"
-              className={mode === "busy" ? "mode-btn mode-btn--active" : "mode-btn"}
-              onClick={() => onModeChange("busy")}
-            >
-              <span className="mode-btn__label">Busy</span>
-              <span className="mode-btn__sub">Summary & actions</span>
-            </button>
-            <button
-              type="button"
-              className={mode === "normal" ? "mode-btn mode-btn--active" : "mode-btn"}
-              onClick={() => onModeChange("normal")}
-            >
-              <span className="mode-btn__label">Normal</span>
-              <span className="mode-btn__sub">Full message</span>
-            </button>
-          </div>
           <button type="button" className="btn btn-ghost btn-reply" disabled={!canReply} onClick={onReply}>
             Reply
           </button>
         </div>
       </div>
-      <div className="detail-meta">
-        <span>{email.sender}</span>
-        <span>{new Date(email.received_at).toLocaleString()}</span>
-      </div>
-      <div className="detail-reason">
-        <strong>Why it ranked here:</strong> {email.reason_summary || "No explanation available yet."}
-      </div>
+      {mode === "busy" ? (
+        <>
+          <div className="detail-meta">
+            <span>{email.sender}</span>
+            <span>{new Date(email.received_at).toLocaleString()}</span>
+          </div>
+          <div className="detail-reason">
+            <strong>Why it ranked here:</strong> {email.reason_summary || "No explanation available yet."}
+          </div>
+        </>
+      ) : null}
       {mode === "busy" ? (
         <div className="busy-panel">
           <div className="busy-grid">
@@ -114,7 +98,7 @@ export function EmailDetail({
           <NormalModeView email={email} onOpenThreadMessage={openThread} />
         </div>
       )}
-      <FeedbackPanel onAction={onFeedback} />
+      {mode === "busy" ? <FeedbackPanel onAction={onFeedback} /> : null}
     </section>
   );
 }

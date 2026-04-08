@@ -632,7 +632,7 @@ function App() {
                     }
                   }}
                 >
-                  Model
+                  Learning
                 </button>
                 {authEmail && authConnected ? (
                   <button

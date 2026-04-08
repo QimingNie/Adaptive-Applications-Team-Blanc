@@ -170,6 +170,34 @@ export function ModelInspector({
               )}
             </div>
           </div>
+
+          <div className="busy-section">
+            <h4>Recent Learning Activity</h4>
+            <p className="model-note">
+              This feed shows the last manual actions and observed behaviors that changed the model.
+            </p>
+            <div className="learning-event-list">
+              {model.recent_learning_events.length ? (
+                model.recent_learning_events.map((event) => (
+                  <div key={`${event.created_at}-${event.email_id}-${event.event_type}`} className="learning-event">
+                    <div className="learning-event__head">
+                      <span className={`learning-badge learning-badge--${event.origin}`}>
+                        {event.origin === "manual" ? "Manual" : "Observed"}
+                      </span>
+                      <strong className={`learning-impact learning-impact--${event.impact}`}>{event.label}</strong>
+                      <time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time>
+                    </div>
+                    <p className="learning-event__detail">{event.detail}</p>
+                    <p className="learning-event__meta">
+                      {event.email_subject} · {event.sender}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <p className="model-note">No learning activity yet. Open, reply, or rate emails to populate this feed.</p>
+              )}
+            </div>
+          </div>
         </div>
       ) : null}
     </section>

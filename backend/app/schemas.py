@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field
 Bucket = Literal["now", "read", "skim", "later"]
 FeedbackType = Literal["important", "not_important", "mute_sender", "remind_sender"]
 ViewMode = Literal["busy", "normal"]
+SignalOrigin = Literal["manual", "observed"]
+SignalImpact = Literal["positive", "negative", "neutral"]
 
 
 class EmailBase(BaseModel):
@@ -31,6 +33,25 @@ class ScoreBreakdownItem(BaseModel):
     source: str
 
 
+class PersonalizationSignalItem(BaseModel):
+    label: str
+    detail: str = ""
+    origin: SignalOrigin
+    impact: SignalImpact
+
+
+class LearningEventResponse(BaseModel):
+    email_id: int
+    email_subject: str
+    sender: str
+    event_type: str
+    label: str
+    detail: str = ""
+    origin: SignalOrigin
+    impact: SignalImpact
+    created_at: datetime
+
+
 class EmailListItem(EmailBase):
     reason_summary: str = ""
 
@@ -42,6 +63,8 @@ class EmailDetail(EmailBase):
     reason_summary: str = ""
     model_summary: str = ""
     score_breakdown: list["ScoreBreakdownItem"] = Field(default_factory=list)
+    manual_signals: list["PersonalizationSignalItem"] = Field(default_factory=list)
+    observed_signals: list["PersonalizationSignalItem"] = Field(default_factory=list)
 
 
 class ThreadMessageItem(BaseModel):
@@ -157,6 +180,7 @@ class UserModelResponse(BaseModel):
     thread_profiles: list[ThreadProfileResponse] = Field(default_factory=list)
     interaction_summary: InteractionSummaryResponse = Field(default_factory=InteractionSummaryResponse)
     scrutability_notes: list[str] = Field(default_factory=list)
+    recent_learning_events: list[LearningEventResponse] = Field(default_factory=list)
 
 
 class UserModelUpdateRequest(BaseModel):

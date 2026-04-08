@@ -6,6 +6,27 @@ export type FeedbackType =
   | "remind_sender";
 export type ViewMode = "busy" | "normal";
 export type ModelSource = "baseline" | "explicit" | "implicit" | "content" | "context" | "behavior";
+export type SignalOrigin = "manual" | "observed";
+export type SignalImpact = "positive" | "negative" | "neutral";
+
+export interface PersonalizationSignalItem {
+  label: string;
+  detail: string;
+  origin: SignalOrigin;
+  impact: SignalImpact;
+}
+
+export interface LearningEventItem {
+  email_id: number;
+  email_subject: string;
+  sender: string;
+  event_type: string;
+  label: string;
+  detail: string;
+  origin: SignalOrigin;
+  impact: SignalImpact;
+  created_at: string;
+}
 
 export interface EmailItem {
   id: number;
@@ -25,6 +46,8 @@ export interface EmailItem {
   reason_summary?: string;
   model_summary?: string;
   score_breakdown?: ScoreBreakdownItem[];
+  manual_signals?: PersonalizationSignalItem[];
+  observed_signals?: PersonalizationSignalItem[];
 }
 
 export interface ThreadMessageItem {
@@ -116,6 +139,7 @@ export interface UserModel {
   thread_profiles: ThreadProfileItem[];
   interaction_summary: InteractionSummary;
   scrutability_notes: string[];
+  recent_learning_events: LearningEventItem[];
 }
 
 export interface UserModelUpdateInput {

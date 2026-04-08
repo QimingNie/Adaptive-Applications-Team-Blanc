@@ -30,7 +30,12 @@ from app.schemas import (
     ViewMode,
 )
 from app.services.gmail_send import send_gmail_message
-from app.services.adaptation import build_adaptation_context, compute_adaptive_score, rescore_user_emails
+from app.services.adaptation import (
+    build_adaptation_context,
+    compute_adaptive_score,
+    describe_personalization_signals,
+    rescore_user_emails,
+)
 from app.services.gmail_sync import sync_gmail_inbox
 from app.services.summary import generate_busy_summary, summary_needs_refresh
 from app.services.sync import ensure_demo_user, seed_mock_emails
@@ -325,6 +330,13 @@ def get_email(
         sender_profile=context.sender_profiles.get(email.sender.lower()),
         thread_profile=context.thread_profiles.get(email.thread_id),
     )
+        manual_signals, observed_signals = describe_personalization_signals(
+            email=email_for_scoring,
+            preference=preference,
+            summary=context.interaction_summaries.get(email.id),
+            sender_profile=context.sender_profiles.get(email.sender.lower()),
+            thread_profile=context.thread_profiles.get(email.thread_id),
+        )
     return EmailDetail(
         id=email.id,
         thread_id=email.thread_id,
@@ -351,6 +363,8 @@ def get_email(
             )
             for item in result.breakdown
         ],
+        manual_signals=manual_signals,
+        observed_signals=observed_signals,
     )
 
 
@@ -515,6 +529,7 @@ def get_user_model(
         thread_profiles=list(snapshot["thread_profiles"]),
         interaction_summary=InteractionSummaryResponse(**snapshot["interaction_summary"]),
         scrutability_notes=list(snapshot["scrutability_notes"]),
+        recent_learning_events=list(snapshot["recent_learning_events"]),
     )
 
 
@@ -543,4 +558,5 @@ def update_user_model(
         thread_profiles=list(snapshot["thread_profiles"]),
         interaction_summary=InteractionSummaryResponse(**snapshot["interaction_summary"]),
         scrutability_notes=list(snapshot["scrutability_notes"]),
+        recent_learning_events=list(snapshot["recent_learning_events"]),
     )

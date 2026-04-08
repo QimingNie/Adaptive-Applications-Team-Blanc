@@ -98,7 +98,11 @@ export function EmailDetail({
           <NormalModeView email={email} onOpenThreadMessage={openThread} />
         </div>
       )}
-      {mode === "busy" ? <FeedbackPanel onAction={onFeedback} /> : null}
+      <FeedbackPanel
+        onAction={onFeedback}
+        manualSignals={email.manual_signals || []}
+        observedSignals={email.observed_signals || []}
+      />
     </section>
   );
 }

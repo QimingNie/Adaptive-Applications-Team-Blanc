@@ -5,7 +5,14 @@ from sqlalchemy.orm import Session
 
 from app.models import Email, InteractionEvent, SenderProfile, ThreadProfile, User, UserPreference
 from app.services.ranking import ScoreContribution, bucket_for_score, clamp_score, score_email_explained
-from app.services.user_model import ensure_profiles_backfilled, get_feature_weights
+from app.services.user_model import (
+    ensure_profiles_backfilled,
+    get_feature_weights,
+    important_senders,
+    muted_senders,
+    sender_affinity,
+    thread_affinity,
+)
 
 
 @dataclass
@@ -111,6 +118,113 @@ def _model_summary(breakdown: list[ScoreContribution]) -> str:
     if negatives:
         parts.append(f"held back by {', '.join(negatives)}")
     return ". ".join(parts) + ("." if parts else "")
+
+
+def describe_personalization_signals(
+    email: Email,
+    preference: Optional[UserPreference],
+    summary: Optional[EmailInteractionSummary] = None,
+    sender_profile: Optional[SenderProfile] = None,
+    thread_profile: Optional[ThreadProfile] = None,
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    manual_signals: list[dict[str, str]] = []
+    observed_signals: list[dict[str, str]] = []
+    sender_key = (email.sender or "").strip().lower()
+    important = set(important_senders(preference))
+    muted = set(muted_senders(preference))
+
+    if sender_key in important:
+        manual_signals.append(
+            {
+                "label": "Sender marked important",
+                "detail": "Future emails from this sender get an explicit boost.",
+                "origin": "manual",
+                "impact": "positive",
+            }
+        )
+    if sender_key in muted:
+        manual_signals.append(
+            {
+                "label": "Sender muted",
+                "detail": "Future emails from this sender are explicitly pushed down.",
+                "origin": "manual",
+                "impact": "negative",
+            }
+        )
+
+    if summary:
+        if summary.latest_priority_feedback == "important":
+            manual_signals.append(
+                {
+                    "label": "This email was marked important",
+                    "detail": "You explicitly promoted this message for future ranking.",
+                    "origin": "manual",
+                    "impact": "positive",
+                }
+            )
+        elif summary.latest_priority_feedback == "not_important":
+            manual_signals.append(
+                {
+                    "label": "This email was marked not important",
+                    "detail": "You explicitly lowered the priority of similar mail.",
+                    "origin": "manual",
+                    "impact": "negative",
+                }
+            )
+
+        if summary.opened:
+            observed_signals.append(
+                {
+                    "label": "Opened before",
+                    "detail": "Opening a message is treated as a light positive signal.",
+                    "origin": "observed",
+                    "impact": "positive",
+                }
+            )
+        if summary.quick_close_count:
+            count = summary.quick_close_count
+            observed_signals.append(
+                {
+                    "label": f"Quick-closed {count} time{'s' if count != 1 else ''}",
+                    "detail": "Leaving this email quickly after opening lowers its future priority.",
+                    "origin": "observed",
+                    "impact": "negative",
+                }
+            )
+        if summary.reply_count:
+            count = summary.reply_count
+            observed_signals.append(
+                {
+                    "label": f"Reply history on this thread: {count}",
+                    "detail": "Replies are treated as a strong sign that this conversation matters.",
+                    "origin": "observed",
+                    "impact": "positive",
+                }
+            )
+
+    sender_score = sender_affinity(sender_profile)
+    if abs(sender_score) > 0.01:
+        observed_signals.append(
+            {
+                "label": f"Sender affinity {sender_score:+.2f}",
+                "detail": "The model has learned a preference from your past behavior with this sender.",
+                "origin": "observed",
+                "impact": "positive" if sender_score > 0 else "negative",
+            }
+        )
+
+    thread_score = thread_affinity(thread_profile)
+    if abs(thread_score) > 0.01:
+        observed_signals.append(
+            {
+                "label": f"Thread affinity {thread_score:+.2f}",
+                "detail": "Past interactions with this thread now influence how prominently it appears.",
+                "origin": "observed",
+                "impact": "positive" if thread_score > 0 else "negative",
+            }
+        )
+
+    return manual_signals, observed_signals
 
 
 def compute_adaptive_score(

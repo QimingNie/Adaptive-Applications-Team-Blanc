@@ -323,20 +323,23 @@ def get_email(
     if full_body and email.body != full_body:
         email.body = full_body
     context = build_adaptation_context(db, user)
+    summary = context.interaction_summaries.get(email.id)
+    sender_profile = context.sender_profiles.get(email.sender.lower())
+    thread_profile = context.thread_profiles.get(email.thread_id)
     result = compute_adaptive_score(
         email=email_for_scoring,
         preference=preference,
-        summary=context.interaction_summaries.get(email.id),
-        sender_profile=context.sender_profiles.get(email.sender.lower()),
-        thread_profile=context.thread_profiles.get(email.thread_id),
+        summary=summary,
+        sender_profile=sender_profile,
+        thread_profile=thread_profile,
     )
-        manual_signals, observed_signals = describe_personalization_signals(
-            email=email_for_scoring,
-            preference=preference,
-            summary=context.interaction_summaries.get(email.id),
-            sender_profile=context.sender_profiles.get(email.sender.lower()),
-            thread_profile=context.thread_profiles.get(email.thread_id),
-        )
+    manual_signals, observed_signals = describe_personalization_signals(
+        email=email_for_scoring,
+        preference=preference,
+        summary=summary,
+        sender_profile=sender_profile,
+        thread_profile=thread_profile,
+    )
     return EmailDetail(
         id=email.id,
         thread_id=email.thread_id,

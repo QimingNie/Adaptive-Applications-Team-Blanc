@@ -120,6 +120,10 @@ PROFILE_COUNT_FIELDS = (
     "remind_count",
 )
 
+OBSERVED_EVENT_TYPES = {"open", "quick_close", "reply"}
+POSITIVE_EVENT_TYPES = {"open", "reply", "important", "remind_sender"}
+NEGATIVE_EVENT_TYPES = {"quick_close", "not_important", "mute_sender"}
+
 
 def _split_csv(raw: str) -> list[str]:
     return [value.strip().lower() for value in raw.split(",") if value.strip()]
@@ -128,6 +132,52 @@ def _split_csv(raw: str) -> list[str]:
 def _join_csv(values: list[str]) -> str:
     cleaned = sorted({value.strip().lower() for value in values if value.strip()})
     return ",".join(cleaned)
+
+
+def interaction_event_origin(event_type: str) -> str:
+    return "observed" if event_type in OBSERVED_EVENT_TYPES else "manual"
+
+
+def interaction_event_impact(event_type: str) -> str:
+    if event_type in POSITIVE_EVENT_TYPES:
+        return "positive"
+    if event_type in NEGATIVE_EVENT_TYPES:
+        return "negative"
+    return "neutral"
+
+
+def interaction_event_label(event_type: str) -> str:
+    labels = {
+        "open": "Opened email",
+        "quick_close": "Quick close",
+        "reply": "Replied",
+        "important": "Marked important",
+        "not_important": "Marked not important",
+        "mute_sender": "Muted sender",
+        "remind_sender": "Remind later",
+    }
+    return labels.get(event_type, event_type.replace("_", " ").title())
+
+
+def interaction_event_detail(event_type: str, dwell_ms: int = 0) -> str:
+    if event_type == "open":
+        return "Opening an email is treated as a light positive signal."
+    if event_type == "quick_close":
+        if dwell_ms > 0:
+            seconds = max(0.1, dwell_ms / 1000)
+            return f"Left after {seconds:.1f}s, which counts as a negative signal."
+        return "Leaving a message quickly after opening counts as a negative signal."
+    if event_type == "reply":
+        return "Replying is treated as a strong positive signal for the sender and thread."
+    if event_type == "important":
+        return "You explicitly promoted this email for future ranking."
+    if event_type == "not_important":
+        return "You explicitly lowered the priority of similar emails."
+    if event_type == "mute_sender":
+        return "You explicitly deprioritized this sender."
+    if event_type == "remind_sender":
+        return "You asked the system to keep this sender more visible for follow-up."
+    return "This interaction contributes to personalization over time."
 
 
 def ensure_user_preference(db: Session, user: User) -> UserPreference:
@@ -405,6 +455,31 @@ def interaction_summary(db: Session, user: User) -> dict[str, int]:
     return dict(counts)
 
 
+def recent_learning_events(db: Session, user: User, limit: int = 12) -> list[dict[str, object]]:
+    rows = (
+        db.query(InteractionEvent, Email)
+        .join(Email, InteractionEvent.email_id == Email.id)
+        .filter(InteractionEvent.user_id == user.id)
+        .order_by(InteractionEvent.created_at.desc(), InteractionEvent.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "email_id": email.id,
+            "email_subject": email.subject,
+            "sender": email.sender,
+            "event_type": event.event_type,
+            "label": interaction_event_label(event.event_type),
+            "detail": interaction_event_detail(event.event_type, event.dwell_ms),
+            "origin": interaction_event_origin(event.event_type),
+            "impact": interaction_event_impact(event.event_type),
+            "created_at": event.created_at,
+        }
+        for event, email in rows
+    ]
+
+
 def build_user_model_snapshot(db: Session, user: User, preference: UserPreference) -> dict[str, object]:
     ensure_profiles_backfilled(db, user)
     important = important_senders(preference)
@@ -494,4 +569,5 @@ def build_user_model_snapshot(db: Session, user: User, preference: UserPreferenc
             "remind_count": summary.get("remind_count", 0),
         },
         "scrutability_notes": notes,
+        "recent_learning_events": recent_learning_events(db, user),
     }

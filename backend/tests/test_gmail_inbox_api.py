@@ -70,6 +70,30 @@ def _fake_sync_gmail(db, user, max_results: int):
     return 2
 
 
+def _seed_email(sender: str = "alice@example.com", thread_id: str = "thread-1") -> int:
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == USER_EMAIL).one()
+    email = Email(
+        user_id=user.id,
+        external_id=f"seed-{uuid4().hex[:8]}",
+        thread_id=thread_id,
+        sender=sender,
+        subject="Quarterly review",
+        snippet="Please review and confirm the latest draft.",
+        body="Please review and confirm the latest draft.",
+        received_at=datetime.utcnow(),
+        score=0.2,
+        bucket="later",
+        needs_action=True,
+    )
+    db.add(email)
+    db.commit()
+    db.refresh(email)
+    email_id = email.id
+    db.close()
+    return email_id
+
+
 def test_gmail_sync_then_normal_inbox_lists_all_buckets(client: TestClient):
     _seed_gmail_user()
     with patch("app.api.routes.sync_gmail_inbox", _fake_sync_gmail):
@@ -118,3 +142,47 @@ def test_busy_later_filter_still_applies_under_busy_view(client: TestClient):
     busy_later = client.get("/api/inbox?bucket=later&view=busy", headers=HDR).json()["items"]
     assert len(busy_later) == 2
     assert len(busy_now) == 0
+
+
+def test_personalization_signals_and_learning_feed_are_exposed(client: TestClient):
+    _seed_gmail_user()
+    email_id = _seed_email()
+
+    open_resp = client.post(
+        "/api/events",
+        headers=HDR,
+        json={"email_id": email_id, "event_type": "open", "dwell_ms": 0},
+    )
+    quick_close_resp = client.post(
+        "/api/events",
+        headers=HDR,
+        json={"email_id": email_id, "event_type": "quick_close", "dwell_ms": 2400},
+    )
+    feedback_resp = client.post(
+        f"/api/emails/{email_id}/feedback",
+        headers=HDR,
+        json={"feedback_type": "important"},
+    )
+
+    assert open_resp.status_code == 200, open_resp.text
+    assert quick_close_resp.status_code == 200, quick_close_resp.text
+    assert feedback_resp.status_code == 200, feedback_resp.text
+
+    detail = client.get(f"/api/emails/{email_id}?mode=busy", headers=HDR)
+    assert detail.status_code == 200, detail.text
+    detail_json = detail.json()
+
+    manual_labels = {item["label"] for item in detail_json["manual_signals"]}
+    observed_labels = {item["label"] for item in detail_json["observed_signals"]}
+
+    assert "Sender marked important" in manual_labels
+    assert "This email was marked important" in manual_labels
+    assert "Opened before" in observed_labels
+    assert any(label.startswith("Quick-closed") for label in observed_labels)
+
+    model = client.get("/api/model", headers=HDR)
+    assert model.status_code == 200, model.text
+    model_json = model.json()
+    event_types = {item["event_type"] for item in model_json["recent_learning_events"]}
+
+    assert {"open", "quick_close", "important"}.issubset(event_types)

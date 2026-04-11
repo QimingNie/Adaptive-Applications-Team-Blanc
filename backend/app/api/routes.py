@@ -442,6 +442,39 @@ def get_email_thread(
     )
 
 
+@router.get("/emails/{email_id}/thread", response_model=ThreadContextResponse)
+def get_email_thread(
+    email_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    email = db.query(Email).filter(Email.id == email_id, Email.user_id == user.id).first()
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+
+    rows = (
+        db.query(Email)
+        .filter(Email.user_id == user.id, Email.thread_id == email.thread_id)
+        .order_by(Email.received_at.asc())
+        .all()
+    )
+    messages = [
+        ThreadMessageItem(
+            id=row.id,
+            sender=row.sender,
+            subject=row.subject,
+            snippet=row.snippet,
+            received_at=row.received_at,
+        )
+        for row in rows
+    ]
+    return ThreadContextResponse(
+        thread_id=email.thread_id,
+        current_email_id=email.id,
+        messages=messages,
+    )
+
+
 @router.post("/emails/{email_id}/feedback", response_model=MessageResponse)
 def feedback(
     email_id: int,

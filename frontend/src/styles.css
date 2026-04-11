@@ -356,6 +356,23 @@ body {
   line-height: 1.45;
 }
 
+.dev-server-hint {
+  margin: 0 24px 16px;
+  padding: 10px 14px;
+  max-width: 920px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.dev-server-hint code {
+  font-size: 12px;
+  font-family: ui-monospace, "IBM Plex Mono", monospace;
+}
+
 /* ─── Priority zone tabs ─── */
 .tabs {
   display: flex;

@@ -83,6 +83,22 @@ class ThreadContextResponse(BaseModel):
     messages: list[ThreadMessageItem]
 
 
+class ThreadMessageItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    sender: str
+    subject: str
+    snippet: str
+    received_at: datetime
+
+
+class ThreadContextResponse(BaseModel):
+    thread_id: str
+    current_email_id: int
+    messages: list[ThreadMessageItem]
+
+
 class InboxResponse(BaseModel):
     bucket: Bucket
     items: list[EmailListItem]

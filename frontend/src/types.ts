@@ -64,6 +64,20 @@ export interface ThreadContextResponse {
   messages: ThreadMessageItem[];
 }
 
+export interface ThreadMessageItem {
+  id: number;
+  sender: string;
+  subject: string;
+  snippet: string;
+  received_at: string;
+}
+
+export interface ThreadContextResponse {
+  thread_id: string;
+  current_email_id: number;
+  messages: ThreadMessageItem[];
+}
+
 export interface InboxResponse {
   bucket: Bucket;
   items: EmailItem[];

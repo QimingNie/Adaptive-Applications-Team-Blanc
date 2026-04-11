@@ -528,6 +528,13 @@ function App() {
   return (
     <main className="app">
       <div className="app-backdrop" aria-hidden="true" />
+      {import.meta.env.DEV ? (
+        <div className="dev-server-hint" role="status">
+          Development: open <strong>http://127.0.0.1:5173</strong> (must match the Gmail redirect URL). Only one{" "}
+          <code>npm run dev</code> at a time; if the port is busy, stop other Vite/Node dev servers, then restart. OAuth always
+          sends you back to port <strong>5173</strong>, not 5174+.
+        </div>
+      ) : null}
       <header className="header">
         <div className="header-main">
           <div className="brand">

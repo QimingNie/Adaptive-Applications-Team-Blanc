@@ -41,7 +41,7 @@ def summary_needs_refresh(email: Email) -> bool:
 
     current_summary = " ".join((email.busy_summary or "").split()).strip()
     current_actions = " ".join((email.action_items or "").split()).strip()
-    heuristic_summary, heuristic_actions = _generate_heuristic_summary(compact)
+    fallback_summary, fallback_actions = generate_busy_summary(email, allow_llm=False)
 
     if not current_summary:
         return True
@@ -49,9 +49,9 @@ def summary_needs_refresh(email: Email) -> bool:
     if not _llm_enabled(compact):
         return False
 
-    heuristic_summary = " ".join(heuristic_summary.split()).strip()
-    heuristic_actions = " ".join(heuristic_actions.split()).strip()
-    return current_summary == heuristic_summary and current_actions == heuristic_actions
+    fallback_summary = " ".join(fallback_summary.split()).strip()
+    fallback_actions = " ".join(fallback_actions.split()).strip()
+    return current_summary == fallback_summary and current_actions == fallback_actions
 
 
 def _llm_enabled(compact: str) -> bool:
@@ -244,16 +244,25 @@ def _call_openai_compatible(email: Email, compact: str) -> Optional[tuple[str, s
             {"role": "system", "content": _system_prompt()},
             {"role": "user", "content": prompt},
         ],
-        "response_format": {"type": "json_object"},
     }
 
     with httpx.Client(timeout=settings.summary_timeout_seconds) as client:
+        response = client.post(
+            f"{base_url}/chat/completions",
+            headers=headers,
+            json={**payload, "response_format": {"type": "json_object"}},
+        )
+        response.raise_for_status()
+        data = response.json()
+        parsed = _parse_openai_response(data)
+        if parsed:
+            return parsed
+
         response = client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
 
-    message = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    return _parse_summary_payload(message)
+    return _parse_openai_response(data)
 
 
 def _call_ollama(email: Email, compact: str) -> Optional[tuple[str, str]]:
@@ -301,15 +310,22 @@ def _system_prompt() -> str:
 
 
 def _parse_summary_payload(raw_content: Any) -> Optional[tuple[str, str]]:
+    if isinstance(raw_content, dict):
+        parsed = raw_content
+    else:
+        parsed = None
+
     if isinstance(raw_content, list):
         raw_content = "".join(
             part.get("text", "") for part in raw_content if isinstance(part, dict)
         )
 
     if not isinstance(raw_content, str) or not raw_content.strip():
-        return None
+        if not parsed:
+            return None
+    else:
+        parsed = _extract_json_object(raw_content)
 
-    parsed = _extract_json_object(raw_content)
     if not parsed:
         return None
 
@@ -327,6 +343,14 @@ def _parse_summary_payload(raw_content: Any) -> Optional[tuple[str, str]]:
         action_items = []
 
     return summary + ".", " | ".join(action_items[:3])
+
+
+def _parse_openai_response(data: dict[str, Any]) -> Optional[tuple[str, str]]:
+    choices = data.get("choices", [])
+    if not choices:
+        return None
+    message = choices[0].get("message", {})
+    return _parse_summary_payload(message.get("content"))
 
 
 def _extract_json_object(raw_content: str) -> Optional[dict[str, Any]]:
